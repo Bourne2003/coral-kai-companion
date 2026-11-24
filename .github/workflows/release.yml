@@ -39,10 +39,12 @@ jobs:
       - name: Install frontend dependencies
         run: cd ui && npm ci
 
-      - name: Build Apple Silicon .app and .dmg
-        run: CI=true ./ui/node_modules/.bin/tauri build --target aarch64-apple-darwin
+      - name: Build, seal-sign, and package Apple Silicon .app and .dmg
+        run: |
+          chmod +x ./scripts/build_whisper_bridge.sh ./scripts/package_macos_dmg.sh
+          ./scripts/package_macos_dmg.sh
 
-      - name: Verify artifacts and generate SHA256SUMS.txt
+      - name: Verify sealed bundle, DMG, and export asset paths
         run: |
           set -euo pipefail
           DMG_PATH="$(find target -path "*bundle/dmg/*.dmg" ! -name "rw.*" | head -n 1)"
@@ -56,6 +58,9 @@ jobs:
             exit 1
           fi
 
+          echo "Verifying strict bundle signature: $APP_PATH"
+          codesign --verify --deep --strict --verbose=4 "$APP_PATH"
+
           echo "Verifying DMG: $DMG_PATH"
           hdiutil verify "$DMG_PATH"
 
@@ -68,7 +73,6 @@ jobs:
           fi
 
           DMG_DIR="$(dirname "$DMG_PATH")"
-          (cd "$DMG_DIR" && shasum -a 256 "$(basename "$DMG_PATH")" > SHA256SUMS.txt)
           cat "$DMG_DIR/SHA256SUMS.txt"
 
           echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
@@ -83,6 +87,7 @@ jobs:
           ## Coral&Kai Companion v0.2.0 (macOS Apple Silicon `aarch64`)
 
           ### Highlights / จุดเด่นในเวอร์ชันนี้
+          - **Properly Sealed & Ad-Hoc Signed macOS Bundle:** Both `.app` and nested `libwhisper_bridge.dylib` are ad-hoc signed with `entitlements.plist` and sealed `CodeResources` (fixes the `"App is damaged and can't be opened"` linker-signed mismatch error).
           - **In-App Starter Model Provisioner ("Quick Setup for M1 (8GB Safe) · ดาวน์โหลดโมเดลเริ่มต้นอัตโนมัติ"):** Download M1 8 GB-safe starter models (`Typhoon 2.5 Qwen3 4B Q4_K_M`, `Qwen 2.5 3B Q4_K_M` fallback, and Whisper `ggml-base.bin`) directly inside the **Models & Runtime** drawer with resumable `.part` downloads, `Cancel`, and one-click `Load & Activate`.
           - **100% Offline-by-Default Privacy / ความเป็นส่วนตัว 100% ออฟไลน์เป็นค่าเริ่มต้น:** Zero network requests at startup, chat, inner loop, or avatar rendering — network access occurs strictly when you explicitly click Download.
           - **BYOM Architecture (Zero Bundled Weights):** This `.dmg` contains zero bundled `.gguf`, `.bin`, or `.onnx` model weights. Bring your own weights or use the in-app Starter Model Provisioner.
@@ -93,7 +98,7 @@ jobs:
              shasum -a 256 -c SHA256SUMS.txt
              ```
           2. Open the `.dmg` and drag **`Coral&Kai Companion.app`** into **`/Applications`**.
-          3. On first launch (unsigned open-source macOS app), clear the Gatekeeper quarantine attribute if macOS reports an unidentified developer or damaged app:
+          3. On first launch (unsigned open-source macOS app downloaded via a browser), clear the Gatekeeper quarantine attribute if macOS prompts before opening:
              ```bash
              xattr -cr "/Applications/Coral&Kai Companion.app"
              ```
