@@ -10,11 +10,12 @@ use brain_llm::{
 };
 use shared_types::{
     ActionResult, AvatarLogicalState, AvatarSnapshot, BrainEngine, BrainReply, CharacterId,
-    ChatRole, ChatTurn, DiaryEntry, DreamDiary, EmotionProfileState, EmotionState, EmotionTag,
-    InnerLoopConfig, InnerLoopStatus, LanguagePref, McpConfig, McpToolInfo, MemoryEngine,
-    MemoryFact, ModelInfo, ModelKind, ModelSource, PersonaBio, PluginInfo, RamSafetyTier,
-    RelationshipState, SoulError, SoulResult, SystemRamStatus, UserProfile, VisemeFrame,
-    VoiceEngine, VoiceMode, events, new_id, now_timestamp_ms,
+    ChatRole, ChatTurn, DiaryEntry, DownloadProgress, DreamDiary, EmotionProfileState,
+    EmotionState, EmotionTag, InnerLoopConfig, InnerLoopStatus, LanguagePref, McpConfig,
+    McpToolInfo, MemoryEngine, MemoryFact, ModelInfo, ModelKind, ModelSource, PersonaBio,
+    PluginInfo, RamSafetyTier, RelationshipState, SoulError, SoulResult, StarterAssetInfo,
+    SystemRamStatus, UserProfile, VisemeFrame, VoiceEngine, VoiceMode, events, new_id,
+    now_timestamp_ms,
 };
 use soul_memory::{SoulMemoryStore, validate_onnx_embed_file};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -23,6 +24,7 @@ use voice_io::VoicePipeline;
 
 use crate::avatar_state::AvatarStateServer;
 use crate::config::{ModelsConfig, SavedModelEntry};
+use crate::downloader::{self, AppHandleProxy, StarterDownloadManager};
 use crate::inner_loop::InnerLoopManager;
 use crate::paths::{
     AppPaths, inspect_live2d_folder, sanitize_slug, scan_embed_models, scan_live2d_models,
@@ -48,6 +50,7 @@ pub struct AppState {
     pub active_live2d_id: Mutex<Option<String>>,
     pub desktop_pet_mode: Mutex<bool>,
     pub shutdown_done: Arc<AtomicBool>,
+    pub download_manager: Arc<StarterDownloadManager>,
 }
 
 impl AppState {
@@ -85,6 +88,7 @@ impl AppState {
             active_live2d_id: Mutex::new(Some(active_live2d_id)),
             desktop_pet_mode: Mutex::new(false),
             shutdown_done: Arc::new(AtomicBool::new(false)),
+            download_manager: Arc::new(StarterDownloadManager::new()),
         }
     }
 
@@ -1602,6 +1606,39 @@ fn load_live2d_folder_inner(
         models.push(info.clone());
     }
     Ok(info)
+}
+
+#[tauri::command]
+pub async fn list_starter_catalog(state: State<'_, AppState>) -> SoulResult<Vec<StarterAssetInfo>> {
+    let discovered_llm = state.brain.scan_models()?;
+    let discovered_asr = state.voice.scan_asr_models()?;
+    Ok(downloader::curated_starter_catalog(
+        &state.paths.user_llm_dir,
+        &state.paths.user_asr_dir,
+        &discovered_llm,
+        &discovered_asr,
+    ))
+}
+
+#[tauri::command]
+pub async fn download_starter_asset(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    asset_id: String,
+    on_progress: tauri::ipc::Channel<DownloadProgress>,
+) -> SoulResult<ModelInfo> {
+    let app_proxy = AppHandleProxy(&app);
+    state
+        .download_manager
+        .download_starter_asset(&app_proxy, &state, &asset_id, move |progress| {
+            let _ = on_progress.send(progress);
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn cancel_download(state: State<'_, AppState>, asset_id: String) -> SoulResult<bool> {
+    Ok(state.download_manager.cancel_download(&asset_id))
 }
 
 #[cfg(test)]

@@ -16,6 +16,9 @@ tauri-build = { version = "2", features = [] }
 async-trait.workspace = true
 brain-llm = { path = "../crates/brain-llm" }
 chrono.workspace = true
+futures-util = "0.3"
+libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
 serde.workspace = true
 serde_json.workspace = true
 shared-types = { path = "../crates/shared-types" }
@@ -23,5 +26,9 @@ soul-memory = { path = "../crates/soul-memory" }
 tauri = { version = "2", features = ["macos-private-api", "protocol-asset"] }
 tauri-plugin-dialog = "2"
 tokio.workspace = true
+tokio-util = "0.7"
 tracing.workspace = true
 voice-io = { path = "../crates/voice-io" }
+
+[dev-dependencies]
+tempfile = "3"
