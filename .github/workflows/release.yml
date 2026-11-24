@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-macos-arm64:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain (aarch64-apple-darwin)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install or verify CMake
+        run: command -v cmake || brew install cmake
+
+      - name: Set LIBCLANG_PATH
+        run: echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$GITHUB_ENV"
+
+      - name: Install frontend dependencies
+        run: cd ui && npm ci
+
+      - name: Build Apple Silicon .app and .dmg
+        run: CI=true ./ui/node_modules/.bin/tauri build --target aarch64-apple-darwin
+
+      - name: Verify artifacts and generate SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          DMG_PATH="$(find target -path "*bundle/dmg/*.dmg" ! -name "rw.*" | head -n 1)"
+          APP_PATH="$(find target -path "*bundle/macos/*.app" -maxdepth 6 | head -n 1)"
+          if [ -z "$DMG_PATH" ] || [ ! -f "$DMG_PATH" ]; then
+            echo "ERROR: Could not locate built .dmg under target/" >&2
+            exit 1
+          fi
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: Could not locate built .app under target/" >&2
+            exit 1
+          fi
+
+          echo "Verifying DMG: $DMG_PATH"
+          hdiutil verify "$DMG_PATH"
+
+          echo "Checking zero bundled model weights inside: $APP_PATH"
+          FOUND_WEIGHTS="$(find "$APP_PATH" -type f \( -name '*.gguf' -o -name '*.bin' -o -name '*.onnx' \))"
+          if [ -n "$FOUND_WEIGHTS" ]; then
+            echo "ERROR: Found bundled model weights inside .app bundle:" >&2
+            echo "$FOUND_WEIGHTS" >&2
+            exit 1
+          fi
+
+          DMG_DIR="$(dirname "$DMG_PATH")"
+          (cd "$DMG_DIR" && shasum -a 256 "$(basename "$DMG_PATH")" > SHA256SUMS.txt)
+          cat "$DMG_DIR/SHA256SUMS.txt"
+
+          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
+          echo "SHA256_PATH=$DMG_DIR/SHA256SUMS.txt" >> "$GITHUB_ENV"
+
+      - name: Create and publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cat <<'EOF' > /tmp/release_notes.md
+          ## Coral&Kai Companion v0.2.0 (macOS Apple Silicon `aarch64`)
+
+          ### Highlights / จุดเด่นในเวอร์ชันนี้
+          - **In-App Starter Model Provisioner ("Quick Setup for M1 (8GB Safe) · ดาวน์โหลดโมเดลเริ่มต้นอัตโนมัติ"):** Download M1 8 GB-safe starter models (`Typhoon 2.5 Qwen3 4B Q4_K_M`, `Qwen 2.5 3B Q4_K_M` fallback, and Whisper `ggml-base.bin`) directly inside the **Models & Runtime** drawer with resumable `.part` downloads, `Cancel`, and one-click `Load & Activate`.
+          - **100% Offline-by-Default Privacy / ความเป็นส่วนตัว 100% ออฟไลน์เป็นค่าเริ่มต้น:** Zero network requests at startup, chat, inner loop, or avatar rendering — network access occurs strictly when you explicitly click Download.
+          - **BYOM Architecture (Zero Bundled Weights):** This `.dmg` contains zero bundled `.gguf`, `.bin`, or `.onnx` model weights. Bring your own weights or use the in-app Starter Model Provisioner.
+
+          ### Installation & Verification / การติดตั้งและตรวจสอบไฟล์
+          1. Download the `.dmg` and `SHA256SUMS.txt`, then verify the checksum:
+             ```bash
+             shasum -a 256 -c SHA256SUMS.txt
+             ```
+          2. Open the `.dmg` and drag **`Coral&Kai Companion.app`** into **`/Applications`**.
+          3. On first launch (unsigned open-source macOS app), clear the Gatekeeper quarantine attribute if macOS reports an unidentified developer or damaged app:
+             ```bash
+             xattr -cr "/Applications/Coral&Kai Companion.app"
+             ```
+          EOF
+          gh release create "$GITHUB_REF_NAME" "$DMG_PATH" "$SHA256_PATH" \
+            --title "Coral&Kai Companion $GITHUB_REF_NAME" \
+            --notes-file /tmp/release_notes.md
