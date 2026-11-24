@@ -14,6 +14,7 @@ export interface ModelDrawerCallbacks {
   onRamUpdated: (ram: SystemRamStatus) => void;
   onEngineModeChange: (mode: AvatarEngineMode) => void;
   onLive2dFilesLoaded: (folder: Live2dFolderFiles) => Promise<void>;
+  onLive2dModelSelected: (model: ModelInfo) => Promise<void>;
   onLive2dDefaultSelected: () => void;
   getEngineMode: () => AvatarEngineMode;
   getLive2dSummary: () => {
@@ -175,6 +176,8 @@ export class ModelDrawer {
       if (!model && !localFiles) return;
       if (localFiles) {
         await this.callbacks.onLive2dFilesLoaded(localFiles);
+      } else if (model) {
+        await this.callbacks.onLive2dModelSelected(model);
       } else {
         this.callbacks.onEngineModeChange("live2d");
       }
@@ -302,11 +305,14 @@ export class ModelDrawer {
       btn.className = isUsingThis ? "btn-chip active-chip" : "btn-primary btn-sm";
       btn.textContent = isUsingThis ? "Active Cubism Rig" : "Activate Cubism";
       btn.addEventListener("click", () => {
-        if (model.id === "default_companion") {
-          this.callbacks.onLive2dDefaultSelected();
-        }
-        this.callbacks.onEngineModeChange("live2d");
-        this.render();
+        void this.callbacks
+          .onLive2dModelSelected(model)
+          .then(() => this.refresh())
+          .catch((err) => {
+            this.errorBanner = formatSoulError(err);
+            this.callbacks.onToast(this.errorBanner, "error");
+            this.render();
+          });
       });
       actions.appendChild(btn);
     }

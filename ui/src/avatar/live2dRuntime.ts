@@ -1,5 +1,5 @@
 import type { EmotionTag } from "../types/ipc";
-import type { Live2dFolderFiles } from "../api/tauriClient";
+import { resolveAssetUrl, type Live2dFolderFiles } from "../api/tauriClient";
 import { MinaProceduralRenderer } from "./minaRenderer";
 import type { CubismParams } from "./types";
 
@@ -50,8 +50,14 @@ export interface CubismMotion3Json {
 export interface Live2dBundleManifest {
   id?: string;
   name?: string;
+  displayName?: string;
   version?: string;
   recommendedRamMb?: number;
+  modelFile?: string;
+  layersDir?: string;
+  layerOrder?: string[];
+  mouthShapes?: Record<string, string>;
+  notes?: string;
 }
 
 export interface LoadedLive2dModel {
@@ -259,6 +265,16 @@ function loadImageFromUrl(url: string): Promise<HTMLImageElement | null> {
   });
 }
 
+async function fetchJson<T>(url: string): Promise<T | null> {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    return (await resp.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeRelPath(file: File): string {
   const rel = file.webkitRelativePath || file.name;
   const parts = rel.split("/");
@@ -431,7 +447,7 @@ export class Live2dCubismRuntime {
     this.disposeObjectUrls();
     this.bundle = {
       id: manifest?.id || folder.folderName,
-      name: manifest?.name || folder.folderName,
+      name: manifest?.displayName || manifest?.name || folder.folderName,
       model3,
       manifest,
       expressions,
@@ -440,6 +456,86 @@ export class Live2dCubismRuntime {
       layers,
       objectUrls,
       sourceLabel: `Folder: ${folder.folderName}`,
+    };
+    return this.bundle;
+  }
+
+  async loadFromBase(
+    baseDir: string,
+    model3FileName = "soulmate.model3.json",
+    opts?: {
+      id?: string;
+      name?: string;
+      sourceLabel?: string;
+      useTauriAsset?: boolean;
+    }
+  ): Promise<LoadedLive2dModel> {
+    const cleanBase = baseDir.replace(/\/+$/, "");
+    const toUrl = (relPath: string): string => {
+      const cleanRel = relPath.replace(/^\.\//, "");
+      const joined = `${cleanBase}/${cleanRel}`;
+      return opts?.useTauriAsset ? resolveAssetUrl(joined) : joined;
+    };
+
+    const model3 = await fetchJson<CubismModel3Json>(toUrl(model3FileName));
+    if (!model3) {
+      throw new Error(`Unable to load ${model3FileName} from "${cleanBase}"`);
+    }
+
+    const manifest =
+      (await fetchJson<Live2dBundleManifest>(toUrl("manifest.json"))) ?? undefined;
+
+    const expressions = new Map<string, CubismExp3Json>();
+    await Promise.all(
+      (model3.FileReferences?.Expressions ?? []).map(async (expRef) => {
+        const parsed = await fetchJson<CubismExp3Json>(toUrl(expRef.File));
+        if (parsed) {
+          expressions.set(expRef.Name.toLowerCase(), parsed);
+        }
+      })
+    );
+
+    let idleMotion: CubismMotion3Json | null = null;
+    const idleRefs = model3.FileReferences?.Motions?.Idle ?? [];
+    if (idleRefs.length > 0) {
+      idleMotion = await fetchJson<CubismMotion3Json>(toUrl(idleRefs[0].File));
+    }
+
+    const textures: HTMLImageElement[] = [];
+    for (const texPath of model3.FileReferences?.Textures ?? []) {
+      const img = await loadImageFromUrl(toUrl(texPath));
+      if (img) textures.push(img);
+    }
+
+    const layers = new Map<string, HTMLImageElement>();
+    const layersDir = (manifest?.layersDir || "layers").replace(/\/+$/, "");
+    const layerFiles = new Set<string>([
+      ...(manifest?.layerOrder ?? []),
+      ...Object.values(manifest?.mouthShapes ?? {}),
+    ]);
+    await Promise.all(
+      Array.from(layerFiles).map(async (fileName) => {
+        const img = await loadImageFromUrl(toUrl(`${layersDir}/${fileName}`));
+        if (img) {
+          const key = fileName.replace(/\.svg$/i, "");
+          layers.set(key, img);
+        }
+      })
+    );
+
+    const folderLabel = cleanBase.split("/").filter(Boolean).pop() || "Live2D";
+    this.disposeObjectUrls();
+    this.bundle = {
+      id: opts?.id || manifest?.id || folderLabel,
+      name: opts?.name || manifest?.displayName || manifest?.name || folderLabel,
+      model3,
+      manifest,
+      expressions,
+      idleMotion,
+      textures,
+      layers,
+      objectUrls: [],
+      sourceLabel: opts?.sourceLabel || `Bundle: ${folderLabel}`,
     };
     return this.bundle;
   }
@@ -547,23 +643,35 @@ export class Live2dCubismRuntime {
     const scale = Math.min(width / 540, height / 690);
     const cx = width * 0.5;
     const cy = height * (petMode ? 0.52 : 0.5);
-    const drawSize = 560;
+    const drawW = 520;
+    const drawH = 650;
+    const eyePivotY = -drawH * 0.15;
 
-    const drawLayer = (img: HTMLImageElement | undefined, dx = 0, dy = 0, sx = 1, sy = 1, rot = 0, alpha = 1) => {
+    const drawLayer = (
+      img: HTMLImageElement | undefined,
+      dx = 0,
+      dy = 0,
+      sx = 1,
+      sy = 1,
+      rot = 0,
+      alpha = 1,
+      pivotY = 0
+    ) => {
       if (!img || alpha <= 0.01) return;
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.translate(dx, dy);
+      ctx.translate(dx, dy + pivotY);
       if (rot !== 0) ctx.rotate(rot);
       if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
-      ctx.drawImage(img, -drawSize / 2, -drawSize / 2, drawSize, drawSize);
+      ctx.translate(0, -pivotY);
+      ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
       ctx.restore();
     };
 
     const breathY = (params.ParamBreath - 0.5) * -5;
     const headX = params.ParamAngleX * 0.65;
     const headY = -params.ParamAngleY * 0.55 + breathY;
-    const headRot = (params.ParamAngleZ * Math.PI) / 180 * 0.6;
+    const headRot = ((params.ParamAngleZ * Math.PI) / 180) * 0.6;
 
     ctx.save();
     ctx.translate(cx, cy);
@@ -578,14 +686,14 @@ export class Live2dCubismRuntime {
 
     drawLayer(layers.get("head"));
     drawLayer(layers.get("blush"), 0, 0, 1, 1, 0, params.ParamCheek);
-    drawLayer(layers.get("eyes_sclera"));
+    drawLayer(layers.get("eyes_sclera"), 0, 0, 1, Math.max(0.12, Math.min(1.15, params.ParamEyeLOpen)), 0, 1, eyePivotY);
 
     const eyeScaleY = Math.max(0.08, Math.min(1.2, params.ParamEyeLOpen));
     const irisDx = params.ParamEyeBallX * 6;
     const irisDy = -params.ParamEyeBallY * 4.5;
-    drawLayer(layers.get("iris_left"), irisDx, irisDy, 1, eyeScaleY);
-    drawLayer(layers.get("iris_right"), irisDx, irisDy, 1, eyeScaleY);
-    drawLayer(layers.get("eyelids"), 0, 0, 1, 1 - Math.min(1, eyeScaleY) * 0.7);
+    drawLayer(layers.get("iris_left"), irisDx, irisDy, 1, eyeScaleY, 0, 1, eyePivotY);
+    drawLayer(layers.get("iris_right"), irisDx, irisDy, 1, eyeScaleY, 0, 1, eyePivotY);
+    drawLayer(layers.get("eyelids"), 0, (1 - Math.min(1, eyeScaleY)) * 8, 1, 0.35 + 0.65 * Math.min(1, eyeScaleY), 0, 1, eyePivotY);
     drawLayer(layers.get("eyebrows"), 0, -params.ParamBrowLY * 8);
 
     // Mouth cross-selection driven by MouthOpenY & MouthForm

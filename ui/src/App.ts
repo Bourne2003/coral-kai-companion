@@ -182,10 +182,21 @@ export class SoulMateApp {
         this.syncEngineBadge();
         this.showToast(`Loaded Live2D "${res.name}" (${res.expressionCount} expressions)`);
       },
-      onLive2dDefaultSelected: () => {
-        this.stage.resetLive2dDefault();
-        this.stage.setEngineMode("live2d");
+      onLive2dModelSelected: async (model) => {
+        if (isTauriRuntime() && model.path && !model.path.startsWith("/bundled/")) {
+          const folderPath = model.path.toLowerCase().endsWith(".model3.json")
+            ? model.path.slice(0, model.path.lastIndexOf("/"))
+            : model.path;
+          await invokeCommand("load_live2d_folder", { folderPath });
+        }
+        const res = await this.stage.loadLive2dModelInfo(model, true);
         this.syncEngineBadge();
+        this.showToast(`Activated Live2D "${res.name}" (${res.expressionCount} expressions)`);
+      },
+      onLive2dDefaultSelected: () => {
+        void this.stage.loadDefaultLive2dAsset(true).then(() => {
+          this.syncEngineBadge();
+        });
       },
       getEngineMode: () => this.stage?.getEngineMode() ?? "mina",
       getLive2dSummary: () => this.stage.getLive2dInfo(),
@@ -601,15 +612,25 @@ export class SoulMateApp {
 
   private async hydrateInitialState(): Promise<void> {
     try {
-      const [ram, rel] = await Promise.all([
+      const [ram, rel, live2dModels] = await Promise.all([
         invokeCommand("get_ram_status"),
         invokeCommand("get_relationship_state"),
+        invokeCommand("list_live2d_models"),
       ]);
       this.ramStatus = ram;
       this.relationship = rel;
       this.syncTopRamLabel();
       this.syncBondMeter();
+
+      const activeLive2d =
+        live2dModels.find((m) => m.isActive) ?? live2dModels[0] ?? null;
+      if (activeLive2d) {
+        void this.stage.loadLive2dModelInfo(activeLive2d, false);
+      } else {
+        void this.stage.loadDefaultLive2dAsset(false);
+      }
     } catch (err) {
+      void this.stage.loadDefaultLive2dAsset(false);
       this.showToast(formatSoulError(err), "error");
     }
   }

@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>SoulMate2D needs microphone access for offline push-to-talk and hands-free voice conversation.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>SoulMate2D uses local on-device speech recognition to transcribe your voice privately offline.</string>
 </dict>
 </plist>

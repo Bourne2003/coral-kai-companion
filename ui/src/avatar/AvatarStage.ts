@@ -1,5 +1,5 @@
-import type { EmotionState, VisemeFrame } from "../types/ipc";
-import type { Live2dFolderFiles } from "../api/tauriClient";
+import type { EmotionState, ModelInfo, VisemeFrame } from "../types/ipc";
+import { isTauriRuntime, type Live2dFolderFiles } from "../api/tauriClient";
 import { Live2dCubismRuntime } from "./live2dRuntime";
 import { MinaProceduralRenderer } from "./minaRenderer";
 import { AvatarMotionController } from "./motionController";
@@ -152,8 +152,107 @@ export class AvatarStage {
     };
   }
 
+  async loadDefaultLive2dAsset(switchToLive2d = false): Promise<{
+    id: string;
+    name: string;
+    expressionCount: number;
+  }> {
+    try {
+      const loaded = await this.live2d.loadFromBase(
+        "/live2d/default_companion",
+        "soulmate.model3.json",
+        {
+          id: "default_companion",
+          name: "Mina (มีนา)",
+          sourceLabel: "Bundled default_companion",
+          useTauriAsset: false,
+        }
+      );
+      if (switchToLive2d) {
+        this.engineMode = "live2d";
+      }
+      return {
+        id: loaded.id,
+        name: loaded.name,
+        expressionCount: loaded.expressions.size,
+      };
+    } catch {
+      this.live2d.resetToBundledDefault();
+      if (switchToLive2d) {
+        this.engineMode = "live2d";
+      }
+      const info = this.live2d.getBundleInfo();
+      return {
+        id: info.id,
+        name: info.name,
+        expressionCount: info.expressionCount,
+      };
+    }
+  }
+
+  async loadLive2dModelInfo(
+    model: ModelInfo,
+    switchToLive2d = true
+  ): Promise<{
+    id: string;
+    name: string;
+    expressionCount: number;
+  }> {
+    const rawPath = model.path.trim();
+    if (isTauriRuntime() && !rawPath.startsWith("/bundled/")) {
+      const lower = rawPath.toLowerCase();
+      let baseDir = rawPath;
+      let model3Name = "soulmate.model3.json";
+      if (lower.endsWith(".model3.json")) {
+        const idx = rawPath.lastIndexOf("/");
+        if (idx > 0) {
+          baseDir = rawPath.slice(0, idx);
+          model3Name = rawPath.slice(idx + 1);
+        }
+      }
+      try {
+        const loaded = await this.live2d.loadFromBase(baseDir, model3Name, {
+          id: model.id,
+          name: model.name,
+          sourceLabel:
+            model.source === "bundled"
+              ? "Bundled Live2D"
+              : `Folder: ${baseDir.split("/").pop() || model.name}`,
+          useTauriAsset: true,
+        });
+        if (switchToLive2d) {
+          this.engineMode = "live2d";
+        }
+        return {
+          id: loaded.id,
+          name: loaded.name,
+          expressionCount: loaded.expressions.size,
+        };
+      } catch (err) {
+        if (model.id === "default_companion") {
+          return this.loadDefaultLive2dAsset(switchToLive2d);
+        }
+        throw err;
+      }
+    }
+
+    if (model.id === "default_companion" || rawPath.includes("default_companion")) {
+      return this.loadDefaultLive2dAsset(switchToLive2d);
+    }
+
+    if (switchToLive2d) {
+      this.engineMode = "live2d";
+    }
+    const info = this.live2d.getBundleInfo();
+    return {
+      id: model.id,
+      name: model.name,
+      expressionCount: info.expressionCount,
+    };
+  }
+
   resetLive2dDefault(): void {
-    this.live2d.resetToBundledDefault();
+    void this.loadDefaultLive2dAsset(this.engineMode === "live2d");
   }
 
   getLive2dInfo() {

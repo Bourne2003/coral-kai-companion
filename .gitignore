@@ -18,6 +18,7 @@ src-tauri/gen/
 src-tauri/resources/models/**/*.gguf
 src-tauri/resources/models/**/*.bin
 src-tauri/resources/models/**/*.onnx
+*.dylib
 !src-tauri/resources/models/**/.gitkeep
 !src-tauri/resources/models/**/manifest.json
 !src-tauri/resources/models/**/*.json
