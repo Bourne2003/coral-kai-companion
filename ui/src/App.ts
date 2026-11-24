@@ -61,6 +61,9 @@ export class SoulMateApp {
   private isSpeaking = false;
   private speakingDecayTimer: number | null = null;
   private pointerDownAt = 0;
+  private pointerActive = false;
+  private startedOnPointerDown = false;
+  private ignoreNextClick = false;
 
   private subtitleText =
     "สวัสดีค่ะ! มีนาอยู่เป็นเพื่อนตรงนี้เสมอนะ พิมพ์หรือกดไมค์คุยกันได้เลยค่ะ";
@@ -535,20 +538,40 @@ export class SoulMateApp {
     this.micBtnEl.innerHTML = ICONS.mic;
 
     this.micBtnEl.addEventListener("pointerdown", () => {
+      this.pointerActive = true;
       this.pointerDownAt = performance.now();
+      this.ignoreNextClick = false;
       if (this.voiceMode === "pushToTalk" && !this.isListening) {
+        this.startedOnPointerDown = true;
         void this.startMic();
+      } else {
+        this.startedOnPointerDown = false;
       }
     });
     this.micBtnEl.addEventListener("pointerup", () => {
       const heldMs = performance.now() - this.pointerDownAt;
-      if (this.voiceMode === "pushToTalk" && heldMs > 280 && this.isListening) {
+      const wasHold = this.pointerActive && heldMs > 280;
+      this.pointerActive = false;
+      if (this.voiceMode === "pushToTalk" && wasHold && this.isListening) {
+        this.startedOnPointerDown = false;
+        this.ignoreNextClick = true;
         void this.stopMic();
       }
     });
+    this.micBtnEl.addEventListener("pointercancel", () => {
+      this.pointerActive = false;
+      this.startedOnPointerDown = false;
+      this.ignoreNextClick = false;
+    });
     this.micBtnEl.addEventListener("click", () => {
-      const heldMs = performance.now() - this.pointerDownAt;
-      if (this.voiceMode === "pushToTalk" && heldMs > 280) return;
+      if (this.ignoreNextClick) {
+        this.ignoreNextClick = false;
+        return;
+      }
+      if (this.startedOnPointerDown) {
+        this.startedOnPointerDown = false;
+        return;
+      }
       if (this.isListening) void this.stopMic();
       else void this.startMic();
     });
@@ -590,6 +613,7 @@ export class SoulMateApp {
         this.syncTranscriptLine();
         if (evt.isFinal) {
           this.isListening = false;
+          this.startedOnPointerDown = false;
           this.syncMicState();
           const finalText = evt.text.trim();
           if (finalText) {
@@ -759,6 +783,7 @@ export class SoulMateApp {
   }
 
   private async stopMic(): Promise<void> {
+    this.startedOnPointerDown = false;
     try {
       await invokeCommand("stop_listening");
     } catch (err) {
