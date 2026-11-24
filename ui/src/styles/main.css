@@ -672,6 +672,35 @@ body.pet-mode .control-dock:focus-within {
   }
 }
 
+@media (max-width: 440px) {
+  .top-bar {
+    gap: 4px;
+    padding: 4px 5px;
+  }
+  .brand-pill {
+    gap: 4px;
+    padding: 1px 2px;
+  }
+  .char-seg-btn {
+    padding: 3px 7px;
+    font-size: 10.5px;
+  }
+  .brand-sub {
+    display: none;
+  }
+  .top-actions {
+    gap: 3px;
+  }
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+  }
+  .pill-btn {
+    height: 28px;
+    padding: 0 6px;
+  }
+}
+
 .drawer-header {
   display: flex;
   align-items: center;
@@ -989,6 +1018,98 @@ body.pet-mode .control-dock:focus-within {
 .byom-preview-card {
   border-color: rgba(79, 142, 147, 0.3);
   background: rgba(246, 252, 252, 0.88);
+}
+
+/* Quick Setup Starter Model Downloader */
+.quick-setup-card {
+  border-color: rgba(79, 142, 147, 0.34);
+  background: linear-gradient(165deg, rgba(255, 253, 249, 0.94), rgba(245, 251, 250, 0.92));
+}
+
+.privacy-callout {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(58, 158, 134, 0.1);
+  border: 1px solid rgba(58, 158, 134, 0.24);
+  color: #1c5f50;
+  font-size: 11px;
+  line-height: 1.42;
+}
+
+.privacy-callout-en {
+  margin-top: 2px;
+  color: #2f7061;
+  font-weight: 500;
+}
+
+.starter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.starter-item {
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(132, 94, 114, 0.15);
+}
+
+.starter-item.installed {
+  border-color: rgba(58, 158, 134, 0.36);
+  background: rgba(246, 253, 251, 0.92);
+}
+
+.starter-item.downloading {
+  border-color: rgba(227, 123, 104, 0.45);
+  background: rgba(255, 249, 246, 0.95);
+}
+
+.starter-desc-th {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--ink-primary);
+  line-height: 1.38;
+}
+
+.starter-desc-en {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--ink-secondary);
+  line-height: 1.35;
+}
+
+.starter-progress-wrap {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.download-progress-track {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(120, 88, 108, 0.14);
+  overflow: hidden;
+}
+
+.download-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-rose), var(--accent-coral));
+  transition: width 0.12s linear;
+}
+
+.starter-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--ink-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .bond-grid {
