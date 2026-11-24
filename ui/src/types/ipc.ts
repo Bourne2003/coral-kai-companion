@@ -134,6 +134,41 @@ export interface ModelInfo {
   notes: string | null;
 }
 
+export interface StarterAssetInfo {
+  id: string;
+  name: string;
+  descriptionEn: string;
+  descriptionTh: string;
+  kind: ModelKind;
+  repo: string;
+  filename: string;
+  approxSizeBytes: number;
+  estimatedRamMb: number;
+  safetyTier: RamSafetyTier;
+  isPrimary: boolean;
+  installed: boolean;
+  installedModelId: string | null;
+  installedPath: string | null;
+  license: string;
+}
+
+export type DownloadStatus =
+  | "resolving"
+  | "downloading"
+  | "verifying"
+  | "completed"
+  | "cancelled"
+  | "error";
+
+export interface DownloadProgress {
+  assetId: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  speedMbps: number;
+  status: DownloadStatus;
+  message: string | null;
+}
+
 export interface SystemRamStatus {
   totalRamMb: number;
   availableRamMb: number;
@@ -311,6 +346,14 @@ export interface IpcCommands {
   list_models: {
     args: { kind?: ModelKind | null };
     result: ModelInfo[];
+  };
+  list_starter_catalog: {
+    args: Record<string, never>;
+    result: StarterAssetInfo[];
+  };
+  cancel_download: {
+    args: { assetId: string };
+    result: boolean;
   };
   hot_swap_llm: {
     args: { modelId: string };

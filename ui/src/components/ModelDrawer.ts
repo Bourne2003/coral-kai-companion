@@ -1,4 +1,5 @@
 import {
+  downloadStarterAsset,
   formatSoulError,
   invokeCommand,
   isTauriRuntime,
@@ -9,6 +10,8 @@ import {
 } from "../api/tauriClient";
 import type { AvatarEngineMode } from "../avatar/types";
 import type {
+  DownloadProgress,
+  DownloadStatus,
   InnerLoopBeatKind,
   InnerLoopConfig,
   InnerLoopStatus,
@@ -18,6 +21,7 @@ import type {
   ModelKind,
   PluginInfo,
   RamSafetyTier,
+  StarterAssetInfo,
   SystemRamStatus,
 } from "../types/ipc";
 import { ICONS } from "./icons";
@@ -61,6 +65,42 @@ function formatSizeGb(bytes: number): string {
   return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
+function formatStarterSize(bytes: number): string {
+  if (bytes <= 0) return "—";
+  if (bytes >= 1_000_000_000) {
+    return `~${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+  return `~${Math.round(bytes / 1_000_000)} MB`;
+}
+
+function formatProgressBytes(bytes: number): string {
+  if (bytes >= 1_000_000_000) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+  return `${Math.round(bytes / 1_000_000)} MB`;
+}
+
+function downloadStatusLabel(status: DownloadStatus): string {
+  switch (status) {
+    case "resolving":
+      return "Resolving…";
+    case "downloading":
+      return "Downloading";
+    case "verifying":
+      return "Verifying…";
+    case "completed":
+      return "Completed";
+    case "cancelled":
+      return "Cancelled";
+    case "error":
+      return "Error";
+  }
+}
+
+function isActiveDownloadStatus(status: DownloadStatus | undefined): boolean {
+  return status === "resolving" || status === "downloading" || status === "verifying";
+}
+
 function beatStatusMeta(
   kind: InnerLoopBeatKind | null,
   enabled: boolean
@@ -93,6 +133,7 @@ export class ModelDrawer {
   private activeTab: ModelDrawerTab = "models";
   private ram: SystemRamStatus | null = null;
   private models: ModelInfo[] = [];
+  private starterCatalog: StarterAssetInfo[] = [];
   private innerLoopStatus: InnerLoopStatus | null = null;
   private plugins: PluginInfo[] = [];
   private mcpConfig: McpConfig | null = null;
@@ -103,6 +144,12 @@ export class ModelDrawer {
   private addingDemoModels = false;
   private runningBeat = false;
   private errorBanner: string | null = null;
+  private downloadProgress: Map<string, DownloadProgress> = new Map();
+  private cancellingAssetIds: Set<string> = new Set();
+  private progressEls: Map<
+    string,
+    { fill: HTMLElement; left: HTMLElement; right: HTMLElement; pill: HTMLElement }
+  > = new Map();
 
   constructor(callbacks: ModelDrawerCallbacks) {
     this.callbacks = callbacks;
@@ -166,15 +213,18 @@ export class ModelDrawer {
 
   async refresh(): Promise<void> {
     try {
-      const [ram, models, innerLoopStatus, plugins, mcpConfig] = await Promise.all([
-        invokeCommand("get_ram_status"),
-        invokeCommand("list_models", { kind: null }),
-        invokeCommand("get_inner_loop_status"),
-        invokeCommand("list_plugins"),
-        invokeCommand("get_mcp_config"),
-      ]);
+      const [ram, models, starterCatalog, innerLoopStatus, plugins, mcpConfig] =
+        await Promise.all([
+          invokeCommand("get_ram_status"),
+          invokeCommand("list_models", { kind: null }),
+          invokeCommand("list_starter_catalog"),
+          invokeCommand("get_inner_loop_status"),
+          invokeCommand("list_plugins"),
+          invokeCommand("get_mcp_config"),
+        ]);
       this.ram = ram;
       this.models = models;
+      this.starterCatalog = starterCatalog;
       this.innerLoopStatus = innerLoopStatus;
       this.plugins = plugins;
       this.mcpConfig = mcpConfig;
@@ -285,6 +335,117 @@ export class ModelDrawer {
       this.errorBanner = formatSoulError(err);
       this.callbacks.onToast(this.errorBanner, "error");
       this.render();
+    }
+  }
+
+  private updateProgressInPlace(progress: DownloadProgress): boolean {
+    const refs = this.progressEls.get(progress.assetId);
+    if (!refs) return false;
+
+    const pct =
+      progress.totalBytes > 0
+        ? Math.min(100, Math.round((progress.downloadedBytes / progress.totalBytes) * 100))
+        : 0;
+    refs.fill.style.width = `${pct}%`;
+    refs.pill.textContent = downloadStatusLabel(progress.status);
+    refs.left.textContent =
+      progress.status === "downloading"
+        ? `Downloading… ${pct}%`
+        : progress.message || `${downloadStatusLabel(progress.status)} (${pct}%)`;
+    refs.right.textContent = `${formatProgressBytes(
+      progress.downloadedBytes
+    )} / ${formatProgressBytes(progress.totalBytes)} · ${progress.speedMbps.toFixed(1)} MB/s`;
+    return true;
+  }
+
+  private async handleDownloadStarter(asset: StarterAssetInfo): Promise<void> {
+    if (isActiveDownloadStatus(this.downloadProgress.get(asset.id)?.status)) return;
+
+    this.errorBanner = null;
+    this.cancellingAssetIds.delete(asset.id);
+    this.downloadProgress.set(asset.id, {
+      assetId: asset.id,
+      downloadedBytes: 0,
+      totalBytes: asset.approxSizeBytes,
+      speedMbps: 0,
+      status: "resolving",
+      message: "Connecting to Hugging Face…",
+    });
+    this.render();
+
+    try {
+      const installed = await downloadStarterAsset(asset.id, (progress) => {
+        const prevStatus = this.downloadProgress.get(asset.id)?.status;
+        this.downloadProgress.set(asset.id, progress);
+
+        if (
+          this.isOpen() &&
+          this.activeTab === "models" &&
+          prevStatus === progress.status &&
+          progress.status === "downloading" &&
+          this.updateProgressInPlace(progress)
+        ) {
+          return;
+        }
+        if (this.isOpen() && this.activeTab === "models") {
+          this.render();
+        }
+      });
+
+      this.downloadProgress.delete(asset.id);
+      this.cancellingAssetIds.delete(asset.id);
+      await this.refresh();
+      this.callbacks.onToast(
+        `Downloaded ${installed.name} — ready to Load & Activate.`
+      );
+    } catch (err) {
+      const lastStatus = this.downloadProgress.get(asset.id)?.status;
+      const errText = formatSoulError(err);
+      const wasCancelled =
+        this.cancellingAssetIds.has(asset.id) ||
+        lastStatus === "cancelled" ||
+        /cancel|ยกเลิก/i.test(errText);
+
+      this.downloadProgress.delete(asset.id);
+      this.cancellingAssetIds.delete(asset.id);
+
+      if (wasCancelled) {
+        this.callbacks.onToast(`Download cancelled: ${asset.name}`);
+      } else {
+        this.errorBanner = errText;
+        this.callbacks.onToast(errText, "error");
+      }
+      if (this.isOpen() && this.activeTab === "models") {
+        this.render();
+      }
+    }
+  }
+
+  private async handleCancelDownload(assetId: string): Promise<void> {
+    if (this.cancellingAssetIds.has(assetId)) return;
+    this.cancellingAssetIds.add(assetId);
+    this.render();
+    try {
+      await invokeCommand("cancel_download", { assetId });
+    } catch (err) {
+      this.cancellingAssetIds.delete(assetId);
+      this.errorBanner = formatSoulError(err);
+      this.callbacks.onToast(this.errorBanner, "error");
+      this.render();
+    }
+  }
+
+  private async handleActivateStarter(asset: StarterAssetInfo): Promise<void> {
+    if (!asset.installedModelId) {
+      await this.refresh();
+      return;
+    }
+    if (asset.kind === "llm") {
+      await this.handleSwapLlm(asset.installedModelId);
+    } else if (asset.kind === "asr") {
+      await this.handleSwitchAsr(asset.installedModelId);
+    } else if (asset.kind === "embed") {
+      await this.handleSwitchEmbed(asset.installedModelId);
     }
   }
 
@@ -556,6 +717,177 @@ export class ModelDrawer {
     btnRow.appendChild(demoBtn);
 
     card.append(head, desc, btnRow);
+    return card;
+  }
+
+  private renderQuickSetupCard(): HTMLElement {
+    const card = document.createElement("section");
+    card.className = "drawer-card quick-setup-card";
+
+    const head = document.createElement("div");
+    head.className = "section-head";
+    const title = document.createElement("h3");
+    title.textContent = "Quick Setup for M1 (8GB Safe) · ดาวน์โหลดโมเดลเริ่มต้นอัตโนมัติ";
+    const badge = document.createElement("span");
+    badge.className = "pill pill-ok";
+    badge.textContent = "Opt-in · 100% Offline After";
+    head.append(title, badge);
+
+    const privacy = document.createElement("div");
+    privacy.className = "privacy-callout";
+    const privacyTh = document.createElement("div");
+    privacyTh.textContent =
+      "เชื่อมต่ออินเทอร์เน็ตเฉพาะตอนกดดาวน์โหลดโมเดลครั้งแรกเท่านั้น หลังจากนั้นทำงานออฟไลน์ 100%";
+    const privacyEn = document.createElement("div");
+    privacyEn.className = "privacy-callout-en";
+    privacyEn.textContent =
+      "Internet is used ONLY when you click Download; 100% offline afterwards.";
+    privacy.append(privacyTh, privacyEn);
+
+    const list = document.createElement("div");
+    list.className = "starter-list";
+
+    for (const asset of this.starterCatalog) {
+      const prog = this.downloadProgress.get(asset.id);
+      const isDownloading = isActiveDownloadStatus(prog?.status);
+      const installedModel = asset.installedModelId
+        ? this.models.find((m) => m.id === asset.installedModelId)
+        : undefined;
+      const isModelActive = Boolean(installedModel?.isActive);
+
+      const item = document.createElement("div");
+      item.className = `starter-item${asset.installed ? " installed" : ""}${
+        isDownloading ? " downloading" : ""
+      }`;
+
+      const itemHead = document.createElement("div");
+      itemHead.className = "model-item-head";
+
+      const nameEl = document.createElement("div");
+      nameEl.className = "model-name";
+      nameEl.textContent = asset.name;
+
+      const badges = document.createElement("div");
+      badges.className = "badge-cluster";
+
+      const tierMeta = safetyBadgeMeta(asset.safetyTier);
+      const tierBadge = document.createElement("span");
+      tierBadge.className = `safety-badge ${tierMeta.cls}`;
+      tierBadge.textContent = tierMeta.label;
+      badges.appendChild(tierBadge);
+
+      const statusPill = document.createElement("span");
+      if (isDownloading && prog) {
+        statusPill.className = "pill pill-tone";
+        statusPill.textContent = downloadStatusLabel(prog.status);
+      } else if (asset.installed) {
+        statusPill.className = "pill pill-ok";
+        statusPill.textContent = "Installed ✅";
+      } else {
+        statusPill.className = "pill pill-muted";
+        statusPill.textContent = "Not Installed";
+      }
+      badges.appendChild(statusPill);
+      itemHead.append(nameEl, badges);
+
+      const descTh = document.createElement("div");
+      descTh.className = "starter-desc-th";
+      descTh.textContent = asset.descriptionTh;
+
+      const descEn = document.createElement("div");
+      descEn.className = "starter-desc-en";
+      descEn.textContent = asset.descriptionEn;
+
+      const meta = document.createElement("div");
+      meta.className = "model-meta";
+      meta.textContent = `${formatStarterSize(
+        asset.approxSizeBytes
+      )} · ~${asset.estimatedRamMb.toLocaleString()} MB RAM · ${asset.kind.toUpperCase()} · ${
+        asset.license
+      }`;
+
+      item.append(itemHead, descTh, descEn, meta);
+
+      if (isDownloading && prog) {
+        const pct =
+          prog.totalBytes > 0
+            ? Math.min(100, Math.round((prog.downloadedBytes / prog.totalBytes) * 100))
+            : 0;
+
+        const progWrap = document.createElement("div");
+        progWrap.className = "starter-progress-wrap";
+
+        const track = document.createElement("div");
+        track.className = "download-progress-track";
+        const fill = document.createElement("div");
+        fill.className = "download-progress-fill";
+        fill.style.width = `${pct}%`;
+        track.appendChild(fill);
+
+        const progMeta = document.createElement("div");
+        progMeta.className = "starter-progress-meta";
+        const left = document.createElement("span");
+        left.textContent =
+          prog.status === "downloading"
+            ? `Downloading… ${pct}%`
+            : prog.message || `${downloadStatusLabel(prog.status)} (${pct}%)`;
+        const right = document.createElement("span");
+        right.textContent = `${formatProgressBytes(
+          prog.downloadedBytes
+        )} / ${formatProgressBytes(prog.totalBytes)} · ${prog.speedMbps.toFixed(1)} MB/s`;
+        progMeta.append(left, right);
+
+        progWrap.append(track, progMeta);
+        item.appendChild(progWrap);
+
+        this.progressEls.set(asset.id, { fill, left, right, pill: statusPill });
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "model-actions";
+
+      if (isDownloading) {
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "btn-danger-ghost btn-sm";
+        const cancelling = this.cancellingAssetIds.has(asset.id);
+        cancelBtn.disabled = cancelling;
+        cancelBtn.textContent = cancelling ? "Cancelling..." : "Cancel";
+        cancelBtn.addEventListener("click", () => void this.handleCancelDownload(asset.id));
+        actions.appendChild(cancelBtn);
+      } else if (asset.installed) {
+        const actBtn = document.createElement("button");
+        actBtn.type = "button";
+        const isBusy =
+          asset.installedModelId !== null && this.busyModelId === asset.installedModelId;
+        actBtn.className = isModelActive ? "btn-chip active-chip" : "btn-primary btn-sm";
+        actBtn.disabled =
+          isModelActive ||
+          isBusy ||
+          this.busyModelId !== null ||
+          !asset.installedModelId;
+        actBtn.textContent = isModelActive
+          ? "Active"
+          : isBusy
+          ? "Activating..."
+          : "Load & Activate";
+        actBtn.addEventListener("click", () => void this.handleActivateStarter(asset));
+        actions.appendChild(actBtn);
+      } else {
+        const dlBtn = document.createElement("button");
+        dlBtn.type = "button";
+        dlBtn.className = "btn-primary btn-sm";
+        dlBtn.disabled = this.cancellingAssetIds.has(asset.id);
+        dlBtn.textContent = "Download ⬇";
+        dlBtn.addEventListener("click", () => void this.handleDownloadStarter(asset));
+        actions.appendChild(dlBtn);
+      }
+
+      item.appendChild(actions);
+      list.appendChild(item);
+    }
+
+    card.append(head, privacy, list);
     return card;
   }
 
@@ -1050,6 +1382,7 @@ export class ModelDrawer {
   }
 
   render(): void {
+    this.progressEls.clear();
     this.renderTabs();
     this.bodyEl.innerHTML = "";
 
@@ -1074,6 +1407,8 @@ export class ModelDrawer {
     if (previewCard) {
       this.bodyEl.appendChild(previewCard);
     }
+
+    this.bodyEl.appendChild(this.renderQuickSetupCard());
 
     const llms = this.models.filter((m) => m.kind === "llm");
     const asrs = this.models.filter((m) => m.kind === "asr");

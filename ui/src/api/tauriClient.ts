@@ -1,9 +1,10 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   IPC_EVENTS,
   type AvatarSnapshot,
+  type DownloadProgress,
   type EmotionState,
   type InnerLoopStatus,
   type IpcCommandName,
@@ -60,6 +61,21 @@ export async function invokeCommand<K extends IpcCommandName>(
     return invoke<IpcCommands[K]["result"]>(command, payload);
   }
   return mockBridge.invoke(command, payload);
+}
+
+export async function downloadStarterAsset(
+  assetId: string,
+  onProgress: (p: DownloadProgress) => void
+): Promise<ModelInfo> {
+  if (isTauriRuntime()) {
+    const channel = new Channel<DownloadProgress>();
+    channel.onmessage = onProgress;
+    return invoke<ModelInfo>("download_starter_asset", {
+      assetId,
+      onProgress: channel,
+    });
+  }
+  return mockBridge.downloadStarterAsset(assetId, onProgress);
 }
 
 export async function listenEvent<K extends EventKey>(

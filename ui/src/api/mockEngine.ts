@@ -7,6 +7,7 @@ import {
   type CharacterId,
   type ChatTurn,
   type DiaryEntry,
+  type DownloadProgress,
   type DreamDiary,
   type EmotionDecayEntry,
   type EmotionProfileState,
@@ -27,6 +28,7 @@ import {
   type RamSafetyTier,
   type RelationshipState,
   type SoulError,
+  type StarterAssetInfo,
   type SystemRamStatus,
   type TokenChunk,
   type TranscriptEvent,
@@ -411,6 +413,56 @@ function createCharacterStore(character: CharacterId): CharacterStore {
   };
 }
 
+const STARTER_CATALOG: ReadonlyArray<
+  Omit<StarterAssetInfo, "installed" | "installedModelId" | "installedPath">
+> = [
+  {
+    id: "typhoon25-qwen3-4b-q4km",
+    name: "Typhoon 2.5 Qwen3 4B Instruct (Q4_K_M)",
+    descriptionEn:
+      "Primary Thai & English bilingual companion LLM tuned for 8GB Apple Silicon.",
+    descriptionTh: "โมเดลหลักภาษาไทย-อังกฤษ แนะนำสำหรับ Mac M1 RAM 8GB",
+    kind: "llm",
+    repo: "typhoon-ai/typhoon2.5-qwen3-4b-gguf",
+    filename: "typhoon2.5-qwen3-4b-q4_k_m.gguf",
+    approxSizeBytes: 2_680_000_000,
+    estimatedRamMb: 3150,
+    safetyTier: "safe8Gb",
+    isPrimary: true,
+    license: "Apache-2.0",
+  },
+  {
+    id: "qwen25-3b-instruct-q4km",
+    name: "Qwen 2.5 3B Instruct (Q4_K_M)",
+    descriptionEn:
+      "Lightweight multilingual fallback LLM with extra RAM headroom on 8GB Macs.",
+    descriptionTh: "โมเดลสำรองขนาดเบา ประหยัดหน่วยความจำสำหรับ Mac M1 8GB",
+    kind: "llm",
+    repo: "Qwen/Qwen2.5-3B-Instruct-GGUF",
+    filename: "qwen2.5-3b-instruct-q4_k_m.gguf",
+    approxSizeBytes: 2_100_000_000,
+    estimatedRamMb: 2650,
+    safetyTier: "safe8Gb",
+    isPrimary: false,
+    license: "Qwen License",
+  },
+  {
+    id: "whisper-ggml-base",
+    name: "Whisper Base (Multilingual Thai/English)",
+    descriptionEn:
+      "Offline speech-to-text recognition for Thai & English voice input.",
+    descriptionTh: "โมเดลรับเสียงพูดเป็นข้อความ ภาษาไทยและอังกฤษ (ออฟไลน์)",
+    kind: "asr",
+    repo: "ggerganov/whisper.cpp",
+    filename: "ggml-base.bin",
+    approxSizeBytes: 147_951_465,
+    estimatedRamMb: 384,
+    safetyTier: "safe8Gb",
+    isPrimary: true,
+    license: "MIT",
+  },
+];
+
 /**
  * Self-contained offline simulation bridge used when running in Vite browser
  * preview (`!window.__TAURI_INTERNALS__`). Boots in genuine BYOM Empty State
@@ -435,6 +487,7 @@ export class MockCompanionBridge {
   private listeningTimer: number | null = null;
   private visemeTimer: number | null = null;
   private activeVisemeRun = 0;
+  private activeDownloads = new Map<string, { cancelled: boolean }>();
 
   private stores: Record<CharacterId, CharacterStore> = {
     coral: createCharacterStore("coral"),
@@ -541,6 +594,150 @@ export class MockCompanionBridge {
     return () => {
       this.listeners[event].delete(callback);
     };
+  }
+
+  private buildStarterCatalog(): StarterAssetInfo[] {
+    return STARTER_CATALOG.map((entry) => {
+      const targetFilename = entry.filename.toLowerCase();
+      const match = this.models.find(
+        (m) =>
+          m.kind === entry.kind &&
+          (m.id === entry.id || m.path.toLowerCase().endsWith(targetFilename))
+      );
+      return {
+        ...entry,
+        installed: Boolean(match),
+        installedModelId: match?.id ?? null,
+        installedPath: match?.path ?? null,
+      };
+    });
+  }
+
+  async downloadStarterAsset(
+    assetId: string,
+    onProgress: (p: DownloadProgress) => void
+  ): Promise<ModelInfo> {
+    const entry = STARTER_CATALOG.find((item) => item.id === assetId);
+    if (!entry) {
+      throw {
+        type: "invalidInput",
+        detail: `Unknown starter asset: ${assetId}`,
+      } satisfies SoulError;
+    }
+    if (this.activeDownloads.has(assetId)) {
+      throw {
+        type: "invalidInput",
+        detail: `Download already in progress for ${assetId}`,
+      } satisfies SoulError;
+    }
+
+    const token = { cancelled: false };
+    this.activeDownloads.set(assetId, token);
+
+    const emitCancelled = () => {
+      onProgress({
+        assetId,
+        downloadedBytes: 0,
+        totalBytes: entry.approxSizeBytes,
+        speedMbps: 0,
+        status: "cancelled",
+        message: "Download cancelled.",
+      });
+    };
+
+    try {
+      onProgress({
+        assetId,
+        downloadedBytes: 0,
+        totalBytes: entry.approxSizeBytes,
+        speedMbps: 0,
+        status: "resolving",
+        message: `Resolving ${entry.repo}/${entry.filename}...`,
+      });
+      await sleep(220);
+      if (token.cancelled) {
+        emitCancelled();
+        throw { type: "io", detail: "Download cancelled by user." } satisfies SoulError;
+      }
+
+      const steps = 22;
+      for (let step = 1; step <= steps; step += 1) {
+        if (token.cancelled) {
+          emitCancelled();
+          throw { type: "io", detail: "Download cancelled by user." } satisfies SoulError;
+        }
+        const downloadedBytes = Math.round((entry.approxSizeBytes * step) / steps);
+        const speedMbps = Number((26.5 + Math.sin(step * 0.65) * 4.2).toFixed(1));
+        onProgress({
+          assetId,
+          downloadedBytes,
+          totalBytes: entry.approxSizeBytes,
+          speedMbps,
+          status: "downloading",
+          message: null,
+        });
+        await sleep(100);
+      }
+
+      if (token.cancelled) {
+        emitCancelled();
+        throw { type: "io", detail: "Download cancelled by user." } satisfies SoulError;
+      }
+
+      onProgress({
+        assetId,
+        downloadedBytes: entry.approxSizeBytes,
+        totalBytes: entry.approxSizeBytes,
+        speedMbps: 0,
+        status: "verifying",
+        message:
+          entry.kind === "llm"
+            ? "Verifying GGUF magic header..."
+            : "Verifying GGML Whisper header...",
+      });
+      await sleep(240);
+
+      if (token.cancelled) {
+        emitCancelled();
+        throw { type: "io", detail: "Download cancelled by user." } satisfies SoulError;
+      }
+
+      const dir = entry.kind === "llm" ? "llm" : "asr";
+      const installedPath = `/Users/local/Library/Application Support/CoralKaiCompanion/models/${dir}/${entry.filename}`;
+      let model = this.models.find(
+        (m) =>
+          m.kind === entry.kind &&
+          (m.id === entry.id || m.path.toLowerCase().endsWith(entry.filename.toLowerCase()))
+      );
+      if (!model) {
+        model = {
+          id: entry.id,
+          name: entry.name,
+          kind: entry.kind,
+          path: installedPath,
+          sizeBytes: entry.approxSizeBytes,
+          estimatedRamMb: entry.estimatedRamMb,
+          source: "userData",
+          safetyTier: entry.safetyTier,
+          isActive: false,
+          valid: true,
+          notes: `Starter model (${entry.license}) · 100% offline local file.`,
+        };
+        this.models.push(model);
+      }
+
+      onProgress({
+        assetId,
+        downloadedBytes: entry.approxSizeBytes,
+        totalBytes: entry.approxSizeBytes,
+        speedMbps: 0,
+        status: "completed",
+        message: "Ready to Load & Activate",
+      });
+      return { ...model };
+    } finally {
+      this.activeDownloads.delete(assetId);
+    }
   }
 
   private emit<K extends EventKey>(event: K, payload: EventMap[K]): void {
@@ -937,6 +1134,20 @@ export class MockCompanionBridge {
         return this.models
           .filter((m) => !kind || m.kind === kind)
           .map((m) => ({ ...m })) as IpcCommands[K]["result"];
+      }
+
+      case "list_starter_catalog": {
+        return this.buildStarterCatalog() as IpcCommands[K]["result"];
+      }
+
+      case "cancel_download": {
+        const { assetId } = args as IpcCommands["cancel_download"]["args"];
+        const token = this.activeDownloads.get(assetId);
+        if (!token) {
+          return false as IpcCommands[K]["result"];
+        }
+        token.cancelled = true;
+        return true as IpcCommands[K]["result"];
       }
 
       case "list_live2d_models": {
