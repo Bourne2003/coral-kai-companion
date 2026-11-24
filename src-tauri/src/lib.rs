@@ -1,6 +1,7 @@
 pub mod avatar_state;
 pub mod commands;
 pub mod config;
+pub mod downloader;
 pub mod inner_loop;
 pub mod paths;
 
@@ -235,6 +236,9 @@ pub fn run() {
             commands::get_mcp_config,
             commands::update_mcp_config,
             commands::list_mcp_tools,
+            commands::list_starter_catalog,
+            commands::download_starter_asset,
+            commands::cancel_download,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Coral&Kai Companion tauri application");

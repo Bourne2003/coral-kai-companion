@@ -671,6 +671,51 @@ pub struct McpToolInfo {
     pub description: String,
 }
 
+/// Curated starter model descriptor exposed to the opt-in In-App Starter Model Provisioner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StarterAssetInfo {
+    pub id: String,
+    pub name: String,
+    pub description_en: String,
+    pub description_th: String,
+    pub kind: ModelKind,
+    pub repo: String,
+    pub filename: String,
+    pub approx_size_bytes: u64,
+    pub estimated_ram_mb: u64,
+    pub safety_tier: RamSafetyTier,
+    pub is_primary: bool,
+    pub installed: bool,
+    pub installed_model_id: Option<String>,
+    pub installed_path: Option<String>,
+    pub license: String,
+}
+
+/// Lifecycle stage for an opt-in starter model download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadStatus {
+    Resolving,
+    Downloading,
+    Verifying,
+    Completed,
+    Cancelled,
+    Error,
+}
+
+/// Live download progress telemetry streamed over a Tauri IPC channel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadProgress {
+    pub asset_id: String,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub speed_mbps: f64,
+    pub status: DownloadStatus,
+    pub message: Option<String>,
+}
+
 /// Streaming callback for generated LLM tokens.
 pub type TokenCallback = Box<dyn FnMut(TokenChunk) + Send>;
 
@@ -958,5 +1003,63 @@ mod tests {
         assert_eq!(action_val["data"]["tempC"], 24);
         let action_back: ActionResult = serde_json::from_value(action_val).unwrap();
         assert_eq!(action_back, action_res);
+    }
+
+    #[test]
+    fn starter_asset_and_download_progress_camel_case_round_trip() {
+        let asset = StarterAssetInfo {
+            id: "typhoon25-qwen3-4b-q4km".into(),
+            name: "Typhoon 2.5 Qwen3 4B Instruct (Q4_K_M)".into(),
+            description_en: "Thai/English 4B instruct".into(),
+            description_th: "โมเดลภาษาไทย/อังกฤษ".into(),
+            kind: ModelKind::Llm,
+            repo: "typhoon-ai/typhoon2.5-qwen3-4b-gguf".into(),
+            filename: "typhoon2.5-qwen3-4b-q4_k_m.gguf".into(),
+            approx_size_bytes: 2_680_000_000,
+            estimated_ram_mb: 3150,
+            safety_tier: RamSafetyTier::Safe8Gb,
+            is_primary: true,
+            installed: false,
+            installed_model_id: None,
+            installed_path: None,
+            license: "Apache-2.0".into(),
+        };
+        let asset_val = serde_json::to_value(&asset).unwrap();
+        assert_eq!(asset_val["approxSizeBytes"], 2_680_000_000u64);
+        assert_eq!(asset_val["estimatedRamMb"], 3150);
+        assert_eq!(asset_val["safetyTier"], "safe8Gb");
+        assert_eq!(asset_val["isPrimary"], true);
+        assert_eq!(asset_val["installedModelId"], serde_json::Value::Null);
+        let asset_back: StarterAssetInfo = serde_json::from_value(asset_val).unwrap();
+        assert_eq!(asset_back, asset);
+
+        for (status, expected) in [
+            (DownloadStatus::Resolving, "resolving"),
+            (DownloadStatus::Downloading, "downloading"),
+            (DownloadStatus::Verifying, "verifying"),
+            (DownloadStatus::Completed, "completed"),
+            (DownloadStatus::Cancelled, "cancelled"),
+            (DownloadStatus::Error, "error"),
+        ] {
+            assert_eq!(
+                serde_json::to_string(&status).unwrap(),
+                format!("\"{expected}\"")
+            );
+        }
+
+        let prog = DownloadProgress {
+            asset_id: "whisper-ggml-base".into(),
+            downloaded_bytes: 50_000_000,
+            total_bytes: 147_951_465,
+            speed_mbps: 12.5,
+            status: DownloadStatus::Downloading,
+            message: None,
+        };
+        let prog_val = serde_json::to_value(&prog).unwrap();
+        assert_eq!(prog_val["assetId"], "whisper-ggml-base");
+        assert_eq!(prog_val["downloadedBytes"], 50_000_000u64);
+        assert_eq!(prog_val["totalBytes"], 147_951_465u64);
+        assert_eq!(prog_val["speedMbps"], 12.5);
+        assert_eq!(prog_val["status"], "downloading");
     }
 }
