@@ -7,7 +7,6 @@ ui/dist/
 *.app
 *.dmg
 *.dylib
-Cargo.lock
 src-tauri/gen/
 
 # AI model weights & personal databases

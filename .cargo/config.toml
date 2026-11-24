@@ -1,9 +1,7 @@
 [build]
 target = "aarch64-apple-darwin"
-target-dir = "/Users/goshi/.gemini/antigravity/scratch/soulmate2d-target"
 jobs = 4
 
 [env]
-LIBCLANG_PATH = "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib"
 MACOSX_DEPLOYMENT_TARGET = "13.0"
 GGML_METAL = "1"

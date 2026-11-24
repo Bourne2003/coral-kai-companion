@@ -5,20 +5,34 @@
 
 <p align="center">
   <a href="https://github.com/Bourne2003/coral-kai-companion/releases/latest">
-    <img src="https://img.shields.io/badge/Download_macOS_Apple_Silicon-v0.1.0_(.dmg)-ea7f66?style=for-the-badge&logo=apple&logoColor=white" alt="Download v0.1.0 for macOS Apple Silicon" />
+    <img src="https://img.shields.io/badge/Download_macOS_Apple_Silicon-v0.2.0_(.dmg)-ea7f66?style=for-the-badge&logo=apple&logoColor=white" alt="Download v0.2.0 for macOS Apple Silicon" />
   </a>
-  <img src="https://img.shields.io/badge/Architecture-Apple_Silicon_M1%2B-3a7f89?style=for-the-badge" alt="Apple Silicon M1+" />
-  <img src="https://img.shields.io/badge/macOS-13.0%2B-4a5568?style=for-the-badge" alt="macOS 13.0+" />
-  <img src="https://img.shields.io/badge/Memory_Budget-8_GB_Unified_Memory-2f855a?style=for-the-badge" alt="8 GB Unified Memory" />
+  <a href="https://github.com/Bourne2003/coral-kai-companion/actions/workflows/ci.yml">
+    <img src="https://github.com/Bourne2003/coral-kai-companion/actions/workflows/ci.yml/badge.svg?style=for-the-badge" alt="CI" />
+  </a>
+  <a href="#direct-download--system-requirements--ดาวน์โหลดและสเปกขั้นต่ำ">
+    <img src="https://img.shields.io/badge/Architecture-Apple_Silicon_M1%2B-3a7f89?style=for-the-badge" alt="Apple Silicon M1+" />
+  </a>
+  <a href="#direct-download--system-requirements--ดาวน์โหลดและสเปกขั้นต่ำ">
+    <img src="https://img.shields.io/badge/macOS-13.0%2B-4a5568?style=for-the-badge" alt="macOS 13.0+" />
+  </a>
+  <a href="#bring-your-own-model-byom-guide--วิธีตั้งค่าและนำเข้าโมเดล-ai">
+    <img src="https://img.shields.io/badge/Memory_Budget-8_GB_Unified_Memory-2f855a?style=for-the-badge" alt="8 GB Unified Memory" />
+  </a>
+  <a href="#licensing--third-party-assets--สัญญาอนุญาต">
+    <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License: MIT" />
+  </a>
 </p>
+
+<p align="center"><img src="docs/screenshots/00-hero-preview.gif" width="380" alt="Coral&Kai Companion Live Preview" /></p>
 
 ---
 
 ## Direct Download & System Requirements / ดาวน์โหลดและสเปกขั้นต่ำ
 
-- **Latest Release / ดาวน์โหลดเวอร์ชันล่าสุด:** [**Coral&Kai Companion `v0.1.0` for Apple Silicon macOS (`.dmg`)**](https://github.com/Bourne2003/coral-kai-companion/releases/latest)
-- **Installer File / ไฟล์ติดตั้ง:** `Coral&Kai Companion_0.1.0_aarch64.dmg` (`11.14 MiB` / `11,677,645 bytes`, zero bundled AI weights — see [BYOM Guide](#bring-your-own-model-byom-guide--วิธีตั้งค่าและนำเข้าโมเดล-ai))
-- **SHA-256 Checksum:** `0f60ecb99bc2aeb448567a3215bb73c021067a016ca3b321b0bdd3b0a2f6b267` (verify against `SHA256SUMS.txt` on the Releases page)
+- **Latest Release / ดาวน์โหลดเวอร์ชันล่าสุด:** [**Coral&Kai Companion `v0.2.0` for Apple Silicon macOS (`.dmg`)**](https://github.com/Bourne2003/coral-kai-companion/releases/latest)
+- **Installer File / ไฟล์ติดตั้ง:** Download the `v0.2.0` Apple Silicon `.dmg` (`Coral&Kai Companion_0.2.0_aarch64.dmg`, zero bundled AI weights — see [BYOM Guide](#bring-your-own-model-byom-guide--วิธีตั้งค่าและนำเข้าโมเดล-ai)) along with `SHA256SUMS.txt` from the [GitHub Releases page](https://github.com/Bourne2003/coral-kai-companion/releases/latest)
+- **Checksum Verification / ตรวจสอบความถูกต้อง:** Verify your downloaded `.dmg` against `SHA256SUMS.txt` on the Releases page (`shasum -a 256 -c SHA256SUMS.txt`)
 - **System Requirements / ความต้องการระบบ:**
   - **Chip / ชิปประมวลผล:** Apple Silicon (**M1 or newer** / M1 ขึ้นไป, `aarch64-apple-darwin`)
   - **OS / ระบบปฏิบัติการ:** **macOS 13.0 (Ventura) or newer** (macOS 13.0 ขึ้นไป)
@@ -140,19 +154,15 @@
 ### วิธีที่ 1: ติดตั้งจากไฟล์ `.dmg` สำเร็จรูป (Recommended / Apple Silicon)
 
 1. **ดาวน์โหลดไฟล์ติดตั้ง (Download `.dmg` &amp; Checksum):**  
-   ไปที่ [GitHub Releases (`v0.1.0`)](https://github.com/Bourne2003/coral-kai-companion/releases/latest) แล้วดาวน์โหลด:
-   - `Coral&Kai Companion_0.1.0_aarch64.dmg`
-   - `SHA256SUMS.txt`
+   ไปที่ [GitHub Releases (`v0.2.0`)](https://github.com/Bourne2003/coral-kai-companion/releases/latest) แล้วดาวน์โหลดไฟล์ `.dmg` สำหรับ Apple Silicon (เช่น `Coral&Kai Companion_0.2.0_aarch64.dmg`) และ `SHA256SUMS.txt`
 
-   ตรวจสอบความถูกต้องของไฟล์ (Optional SHA-256 verification):
+   ตรวจสอบความถูกต้องของไฟล์ด้วย `SHA256SUMS.txt` จากหน้า Releases (Optional SHA-256 verification):
    ```bash
-   shasum -a 256 "Coral&Kai Companion_0.1.0_aarch64.dmg"
-   # Expected:
-   # 0f60ecb99bc2aeb448567a3215bb73c021067a016ca3b321b0bdd3b0a2f6b267  Coral&Kai Companion_0.1.0_aarch64.dmg
+   shasum -a 256 -c SHA256SUMS.txt
    ```
 
 2. **ติดตั้งลงใน `/Applications` (Install to Applications):**  
-   ดับเบิลคลิกเปิดไฟล์ `Coral&Kai Companion_0.1.0_aarch64.dmg` จากนั้นลากไอคอน **`Coral&Kai Companion.app`** ไปวางในโฟลเดอร์ **`/Applications`**
+   ดับเบิลคลิกเปิดไฟล์ `.dmg` ของเวอร์ชัน `v0.2.0` จากนั้นลากไอคอน **`Coral&Kai Companion.app`** ไปวางในโฟลเดอร์ **`/Applications`**
 
 3. **การผ่าน macOS Gatekeeper เมื่อเปิดแอปครั้งแรก (Open-Source App Without Apple Notarization):**  
    เนื่องจากเป็นแอป Open-Source ที่ไม่ได้เซ็นใบรับรอง Apple Developer Notarization เมื่อเปิดครั้งแรก macOS อาจแจ้งเตือน *"cannot be opened because the developer cannot be verified"* หรือ *"is damaged and can't be opened"* ให้ทำตามวิธีใดวิธีหนึ่งต่อไปนี้:
@@ -204,15 +214,42 @@ CI=true cargo tauri build --target aarch64-apple-darwin
 
 > **Note:** On Apple Silicon, `cargo tauri build` outputs the bundle under `target/aarch64-apple-darwin/release/bundle/dmg/`. You can also run the UI alone in browser mock preview mode via `cd ui && npm run dev`.
 
+#### CI/CD Workflows (GitHub Actions)
+- **[`.github/workflows/ci.yml`](.github/workflows/ci.yml):** Runs on `push` and `pull_request` to `main` (`macos-14` Apple Silicon runner). Installs Rust (`aarch64-apple-darwin`), Node.js 22, and CMake, builds `ui/dist` and `libwhisper_bridge.dylib`, and runs `cargo check --workspace` + `cargo test --workspace`.
+- **[`.github/workflows/release.yml`](.github/workflows/release.yml):** Runs on `v*` tag pushes (`macos-14`). Builds the Apple Silicon `.app` and `.dmg` via `CI=true ./ui/node_modules/.bin/tauri build --target aarch64-apple-darwin`, verifies the `.dmg` with `hdiutil verify`, enforces zero bundled `.gguf`/`.bin`/`.onnx` weights inside the `.app`, generates `SHA256SUMS.txt`, and publishes the GitHub Release.
+
 ---
 
 ## Bring Your Own Model (BYOM) Guide / วิธีตั้งค่าและนำเข้าโมเดล AI
 
 **Zero-Bundled-Weights Startup:** ซอร์สโค้ดและไฟล์ `.dmg` **ไม่ฝังไฟล์น้ำหนักโมเดล AI** เมื่อเปิดโปรแกรมครั้งแรก แอปจะเริ่มต้นทันทีในโหมดพร้อมใช้งาน UI และแสดงแบนเนอร์สีส้มอ่อน (`ยังไม่ได้นำเข้าโมเดล AI — กรุณาเลือกไฟล์โมเดล (.gguf / .bin) ในเมนู Models ก่อนเริ่มสนทนาหรือใช้เสียง`)
 
-### วิธีอัตโนมัติ (One-Command Helper Script)
+### วิธีที่ 1: Quick Setup for M1 (8GB Safe) · ดาวน์โหลดโมเดลเริ่มต้นอัตโนมัติ (Recommended / One-Click In-App)
 
-หากคุณมีซอร์สโค้ดในเครื่อง สามารถรันสคริปต์ช่วยดาวน์โหลดโมเดลโอเพนซอร์สที่ผ่านการทดสอบสำหรับ M1 8 GB ได้ด้วยคำสั่งเดียว:
+ตั้งแต่เวอร์ชัน **`v0.2.0`** เป็นต้นไป วิธีที่ง่ายที่สุดสำหรับผู้ใช้ `.dmg` (ไม่ต้องเปิด Terminal) คือใช้ตัวช่วยดาวน์โหลดในแอป:
+
+1. เปิดหน้าต่าง **Models** (หรือกดปุ่ม **`นำเข้าโมเดล`** บนแบนเนอร์)
+2. ในส่วน **"Quick Setup for M1 (8GB Safe) · ดาวน์โหลดโมเดลเริ่มต้นอัตโนมัติ"** กดปุ่มดาวน์โหลดโมเดลที่แนะนำสำหรับ Mac M1 8 GB:
+   - **LLM (`.gguf`):** **Typhoon 2.5 Qwen3 4B (`Q4_K_M`)** (พร้อมตัวเลือก/fallback **Qwen 2.5 3B (`Q4_K_M`)**) สำหรับสนทนาภาษาไทยและอังกฤษ
+   - **Whisper ASR (`.bin`):** **Whisper `ggml-base.bin`** สำหรับถอดความเสียงพูดสองภาษา (ไทย / อังกฤษ / Auto)
+3. **ฟีเจอร์ความปลอดภัยและความสะดวก:**
+   - **100% Offline-After-Download Guarantee:** แอปไม่มีการเชื่อมต่อเครือข่ายใดๆ ตอนเปิดโปรแกรม, ขณะแชท, ระหว่าง Inner Loop หรือเรนเดอร์ตัวละคร — ตัวดาวน์โหลดจะทำงานเฉพาะตอนที่คุณกดปุ่มดาวน์โหลดเท่านั้น และเมื่อโหลดเสร็จแล้วจะทำงานออฟไลน์ 100%
+   - **Resumable `.part` + `Cancel` + `Load & Activate`:** ดาวน์โหลดต่อจากจุดเดิมได้หากเน็ตหลุดผ่านไฟล์ `.part`, กด **`Cancel`** ยกเลิกกลางคันได้ทันที, และเมื่อตรวจสอบไฟล์เสร็จแล้วสามารถกด **`Load & Activate`** เพื่อใช้งานได้ในคลิกเดียว
+
+### วิธีที่ 2: นำเข้าไฟล์ด้วยตนเองในแอป (Manual Import via Models Drawer)
+
+หากคุณมีไฟล์โมเดลหรืออวาตาร์ Live2D ในเครื่องอยู่แล้ว:
+
+1. กดปุ่ม **Models** บนแถบด้านบน
+2. นำเข้าไฟล์ตามหมวดหมู่:
+   - **Local LLM (`.gguf`):** กด **`Add .gguf`** → เลือกไฟล์ `.gguf` (เช่น Typhoon 2.5 Qwen3 4B Q4_K_M หรือ Qwen 2.5 3B Q4_K_M) → กด **`Hot-Swap LLM`** เพื่อโหลดเข้า Metal GPU ทันที
+   - **Whisper Speech ASR (`.bin`):** กด **`Add .bin`** → เลือกไฟล์ GGML เช่น `ggml-base.bin` → กด **`Use ASR`**
+   - **Embedding Model (`.onnx`, Optional):** กด **`Add .onnx`** → เลือกไฟล์ `.onnx` (**ต้องวางไฟล์ `tokenizer.json` ไว้ในโฟลเดอร์เดียวกัน**) → กด **`Use Embed`**
+   - **Live2D Avatars (`.model3.json`):** กด **`Load Folder`** → เลือกโฟลเดอร์ที่มีไฟล์ `.model3.json` → กด **`Activate Cubism`** (หรือใช้ตัวละคร built-in ของ Coral / Kai ได้ทันที)
+
+### วิธีที่ 3: สคริปต์สำหรับนักพัฒนา (Developer CLI Helper Script)
+
+หากคุณโคลนซอร์สโค้ดไว้ในเครื่อง สามารถรันสคริปต์ CLI เพื่อดาวน์โหลดโมเดลชุดเริ่มต้น (LLM, Whisper ASR และ optional ONNX Embedding) ได้เช่นกัน:
 
 ```bash
 ./scripts/provision_models.sh
@@ -222,15 +259,6 @@ CI=true cargo tauri build --target aarch64-apple-darwin
 - **LLM (`.gguf`):** `typhoon2.5-qwen3-4b-gguf` (`Q4_K_M`, พร้อม fallback ไปยัง `Qwen2.5-3B-Instruct-GGUF` / `llama3.2-typhoon2-3b-instruct-GGUF`)
 - **Whisper ASR (`.bin`):** `ggml-base.bin` (Multilingual รองรับไทย + อังกฤษ)
 - **Embeddings (`.onnx` + `tokenizer.json`, Optional):** `paraphrase-multilingual-MiniLM-L12-v2` (หากไม่มี ระบบจะใช้ตัวฝังเวกเตอร์สำรองแบบ 384-dim character n-gram ในตัวโดยอัตโนมัติ)
-
-### วิธีนำเข้าเองในแอป (In-App Models Drawer)
-
-1. กดปุ่ม **Models** บนแถบด้านบน (หรือกดปุ่ม **`นำเข้าโมเดล`** บนแบนเนอร์)
-2. นำเข้าไฟล์ตามหมวดหมู่:
-   - **Local LLM (`.gguf`):** กด **`Add .gguf`** → เลือกไฟล์ `.gguf` (เช่น Typhoon 2.5 Qwen3 4B Q4_K_M หรือ Qwen 2.5 3B Q4_K_M) → กด **`Hot-Swap LLM`** เพื่อโหลดเข้า Metal GPU ทันที
-   - **Whisper Speech ASR (`.bin`):** กด **`Add .bin`** → เลือกไฟล์ GGML เช่น `ggml-base.bin` → กด **`Use ASR`**
-   - **Embedding Model (`.onnx`, Optional):** กด **`Add .onnx`** → เลือกไฟล์ `.onnx` (**ต้องวางไฟล์ `tokenizer.json` ไว้ในโฟลเดอร์เดียวกัน**) → กด **`Use Embed`**
-   - **Live2D Avatars (`.model3.json`):** กด **`Load Folder`** → เลือกโฟลเดอร์ที่มีไฟล์ `.model3.json` → กด **`Activate Cubism`** (หรือใช้ตัวละคร built-in ของ Coral / Kai ได้ทันที)
 
 ### RAM Safety Tiers (8 GB Apple Silicon M1 Budget)
 
@@ -368,10 +396,18 @@ CI=true cargo tauri build --target aarch64-apple-darwin
 - **macOS แจ้งว่า *"Coral&Kai Companion.app cannot be opened because the developer cannot be verified"* หรือ *"is damaged"*:**  
   รันคำสั่ง `xattr -cr "/Applications/Coral&Kai Companion.app"` ใน Terminal หรือคลิกขวาที่ตัวแอปใน `/Applications` แล้วเลือก **Open** (หรือไปที่ **System Settings → Privacy &amp; Security → Open Anyway**)
 - **เปิดแอปแล้วขึ้นแบนเนอร์สีส้ม *"ยังไม่ได้นำเข้าโมเดล AI"*:**  
-  เป็นพฤติกรรมปกติของสถาปัตยกรรม BYOM ให้กดปุ่ม **`นำเข้าโมเดล`** เพื่อเลือกไฟล์ `.gguf` (LLM) และ `.bin` (Whisper) หรือรัน `./scripts/provision_models.sh` เพื่อดาวน์โหลดอัตโนมัติ
+  เป็นพฤติกรรมปกติของสถาปัตยกรรม BYOM ให้กดปุ่ม **`นำเข้าโมเดล`** เพื่อใช้ **Quick Setup for M1 (8GB Safe) · ดาวน์โหลดโมเดลเริ่มต้นอัตโนมัติ** ในหน้า Models, เลือกไฟล์ `.gguf` / `.bin` ด้วยตนเอง, หรือรัน `./scripts/provision_models.sh`
 - **นำเข้าไฟล์ `.onnx` แล้วโหลดไม่สำเร็จ:**  
   ต้องวางไฟล์ `tokenizer.json` ของโมเดล Embedding นั้นๆ ไว้ในโฟลเดอร์เดียวกับไฟล์ `.onnx` (หรือข้ามขั้นตอนนี้ได้ เพราะระบบมีตัวค้นหาความจำสำรอง 384-dim ในตัวอยู่แล้ว)
 - **ไม่มีเสียงพูดเข้าเมื่อกดไมค์ (`PTT` / `Hands-Free`):**  
   ตรวจสอบที่ **System Settings → Privacy &amp; Security → Microphone** และ **Speech Recognition** ว่าได้เปิดสิทธิ์ให้ `Coral&Kai Companion` แล้ว
 - **ต้องการรีเซ็ตหรือย้ายความทรงจำของตัวละคร:**  
   เปิด **Soul Memory &amp; Diary** แล้วใช้ปุ่ม **`Export soul_memory.sqlite`** / **`Import soul_memory.sqlite`** หรือสำรองไฟล์ใน `~/Library/Application Support/com.coralkai.companion/profiles/<coral|kai>/soul_memory.sqlite` ได้โดยตรง
+
+---
+
+## Licensing & Third-Party Assets / สัญญาอนุญาต
+
+- **Application Source Code (MIT License):** All Rust, TypeScript, and configuration source code in this repository is licensed under the **MIT License** — see [`LICENSE`](LICENSE).
+- **Third-Party AI Models &amp; Live2D Assets:** Because Coral&amp;Kai Companion follows a zero-bundled-weights **BYOM** design, any user-imported or downloaded AI model weights (`.gguf` LLMs such as Typhoon / Qwen, Whisper GGML `.bin`, ONNX embeddings) and optional user-imported Live2D `.model3.json` avatar assets remain governed by their respective creators' licenses and terms of use.
+- **สัญญาอนุญาตภาษาไทย:** ซอร์สโค้ดของโปรแกรมเผยแพร่ภายใต้สัญญาอนุญาต **MIT License** ([`LICENSE`](LICENSE)) ส่วนไฟล์โมเดล AI (`.gguf`, `.bin`, `.onnx`) และไฟล์อวาตาร์ Live2D ที่ผู้ใช้นำเข้าหรือดาวน์โหลดเพิ่มเติม จะอยู่ภายใต้เงื่อนไขสัญญาอนุญาตของเจ้าของผลงานต้นทางแต่ละราย
