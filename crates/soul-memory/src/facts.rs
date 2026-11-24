@@ -15,7 +15,7 @@ pub fn normalize_fact_field(input: &str) -> String {
 }
 
 /// Normalize a value string for equivalence checks while preserving stored casing in `MemoryFact::value`.
-fn normalize_fact_value(input: &str) -> String {
+pub(crate) fn normalize_fact_value(input: &str) -> String {
     input
         .trim()
         .to_lowercase()

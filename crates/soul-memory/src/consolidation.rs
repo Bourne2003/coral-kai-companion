@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, Transaction, params};
 use shared_types::{
-    ChatRole, ChatTurn, DreamDiary, EmotionTag, EpisodeRecord, RelationshipState, SoulError,
-    SoulResult, new_id, now_timestamp_ms,
+    CharacterId, ChatRole, ChatTurn, DreamDiary, EmotionTag, EpisodeRecord, RelationshipState,
+    SoulError, SoulResult, new_id, now_timestamp_ms,
 };
 
+use crate::diary::add_or_merge_diary_entry_in_tx;
 use crate::embedder::{Embedder, embedding_to_le_bytes};
-use crate::facts::resolve_embedding;
+use crate::facts::{normalize_fact_value, resolve_embedding};
 use crate::ranking::get_relationship_state_query;
 use crate::schema::db_err;
 
@@ -44,7 +45,7 @@ pub fn store_episode_tx(
 }
 
 fn insert_episode_in_tx(
-    tx: &rusqlite::Transaction<'_>,
+    tx: &Transaction<'_>,
     episode: &EpisodeRecord,
     vec_bytes: &[u8],
 ) -> SoulResult<()> {
@@ -111,7 +112,7 @@ pub fn store_dream_diary_tx(conn: &mut Connection, mut diary: DreamDiary) -> Sou
     Ok(())
 }
 
-fn insert_diary_in_tx(tx: &rusqlite::Transaction<'_>, diary: &DreamDiary) -> SoulResult<()> {
+fn insert_diary_in_tx(tx: &Transaction<'_>, diary: &DreamDiary) -> SoulResult<()> {
     tx.execute(
         "INSERT INTO dream_diaries (
             id, period_type, period_key, summary, emotional_tone, bond_delta, created_at
@@ -171,11 +172,148 @@ pub fn update_relationship_state_tx(
     Ok(())
 }
 
-/// Consolidate unconsolidated turns into an `EpisodeRecord`, generate a `DreamDiary`,
+struct ActiveFactRow {
+    id: String,
+    norm_category: String,
+    norm_key: String,
+    norm_value: String,
+    confidence: f32,
+    importance: f32,
+    memory_heat: f32,
+    access_count: u32,
+    last_accessed_at: i64,
+    merged: bool,
+}
+
+/// Detect duplicate active facts (same normalized `(category, key)` or identical normalized `value`
+/// within the same `norm_category`), merge `access_count` sum and `memory_heat.max(...)` into the
+/// newest fact, and mark older duplicates with `superseded_by` + `superseded_at`.
+/// Returns the number of compacted duplicate rows.
+pub fn compact_redundant_facts_tx(conn: &mut Connection) -> SoulResult<usize> {
+    let now_ms = now_timestamp_ms();
+    let tx = conn.transaction().map_err(db_err)?;
+    let compacted = compact_redundant_facts_in_tx(&tx, now_ms)?;
+    tx.commit().map_err(db_err)?;
+    Ok(compacted)
+}
+
+/// Transaction-scoped redundant fact compaction used by both `compact_redundant_facts_tx`
+/// and `consolidate_now_tx`.
+pub fn compact_redundant_facts_in_tx(tx: &Transaction<'_>, now_ms: i64) -> SoulResult<usize> {
+    let rows: Vec<ActiveFactRow> = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT id, norm_category, norm_key, value, confidence, importance,
+                        memory_heat, access_count, last_accessed_at
+                 FROM facts
+                 WHERE superseded_by IS NULL
+                 ORDER BY created_at DESC, last_accessed_at DESC, rowid DESC",
+            )
+            .map_err(db_err)?;
+
+        let mapped = stmt
+            .query_map([], |row| {
+                let value: String = row.get(3)?;
+                Ok(ActiveFactRow {
+                    id: row.get(0)?,
+                    norm_category: row.get(1)?,
+                    norm_key: row.get(2)?,
+                    norm_value: normalize_fact_value(&value),
+                    confidence: row.get(4)?,
+                    importance: row.get(5)?,
+                    memory_heat: row.get(6)?,
+                    access_count: row.get(7)?,
+                    last_accessed_at: row.get(8)?,
+                    merged: false,
+                })
+            })
+            .map_err(db_err)?;
+
+        let mut out = Vec::new();
+        for item in mapped {
+            out.push(item.map_err(db_err)?);
+        }
+        out
+    };
+
+    let mut survivors: Vec<ActiveFactRow> = Vec::with_capacity(rows.len());
+    let mut by_cat_key: HashMap<(String, String), usize> = HashMap::new();
+    let mut by_cat_val: HashMap<(String, String), usize> = HashMap::new();
+    let mut superseded_pairs: Vec<(String, String)> = Vec::new();
+
+    for row in rows {
+        let cat_key = (row.norm_category.clone(), row.norm_key.clone());
+        let cat_val = (row.norm_category.clone(), row.norm_value.clone());
+
+        let matched_idx = match (by_cat_key.get(&cat_key), by_cat_val.get(&cat_val)) {
+            (Some(&a), Some(&b)) => Some(a.min(b)),
+            (Some(&a), None) => Some(a),
+            (None, Some(&b)) => Some(b),
+            (None, None) => None,
+        };
+
+        if let Some(idx) = matched_idx {
+            let survivor = &mut survivors[idx];
+            survivor.access_count = survivor.access_count.saturating_add(row.access_count);
+            survivor.memory_heat = survivor.memory_heat.max(row.memory_heat).clamp(0.0, 1.0);
+            survivor.confidence = survivor.confidence.max(row.confidence).clamp(0.0, 1.0);
+            survivor.importance = survivor.importance.max(row.importance).clamp(0.0, 1.0);
+            survivor.last_accessed_at = survivor.last_accessed_at.max(row.last_accessed_at);
+            survivor.merged = true;
+            superseded_pairs.push((row.id, survivor.id.clone()));
+        } else {
+            let idx = survivors.len();
+            by_cat_key.insert(cat_key, idx);
+            by_cat_val.insert(cat_val, idx);
+            survivors.push(row);
+        }
+    }
+
+    for survivor in survivors.iter().filter(|s| s.merged) {
+        tx.execute(
+            "UPDATE facts
+             SET access_count = ?1,
+                 memory_heat = ?2,
+                 confidence = ?3,
+                 importance = ?4,
+                 last_accessed_at = ?5
+             WHERE id = ?6",
+            params![
+                survivor.access_count,
+                survivor.memory_heat,
+                survivor.confidence,
+                survivor.importance,
+                survivor.last_accessed_at,
+                &survivor.id,
+            ],
+        )
+        .map_err(db_err)?;
+    }
+
+    for (old_id, survivor_id) in &superseded_pairs {
+        tx.execute(
+            "UPDATE facts
+             SET superseded_by = ?1,
+                 superseded_at = ?2
+             WHERE id = ?3",
+            params![survivor_id, now_ms, old_id],
+        )
+        .map_err(db_err)?;
+
+        tx.execute("DELETE FROM vec_facts WHERE fact_id = ?1", params![old_id])
+            .map_err(db_err)?;
+    }
+
+    Ok(superseded_pairs.len())
+}
+
+/// Consolidate unconsolidated turns into an `EpisodeRecord`, compact redundant active facts,
+/// merge daily reflection into `diary_entries` (`source = "consolidation"`), generate a `DreamDiary`,
 /// and update `RelationshipState`. Returns `Ok(None)` if no new turns await consolidation.
 pub fn consolidate_now_tx(
     conn: &mut Connection,
     embedder: &Embedder,
+    character_id: CharacterId,
 ) -> SoulResult<Option<DreamDiary>> {
     let turns = load_unconsolidated_turns(conn)?;
     if turns.is_empty() {
@@ -193,8 +331,8 @@ pub fn consolidate_now_tx(
         .map_err(db_err)?;
     let current_rel = get_relationship_state_query(conn)?;
 
-    let (valence, emotional_tone) = analyze_turns_emotion(&turns);
-    let episode_summary = build_episode_summary(&turns);
+    let (valence, emotional_tone, dominant_mood) = analyze_turns_emotion(&turns);
+    let episode_summary = build_episode_summary(&turns, character_id);
     let episode_vec = embedder.embed(&episode_summary)?;
     let episode_vec_bytes = embedding_to_le_bytes(&episode_vec);
 
@@ -213,10 +351,11 @@ pub fn consolidate_now_tx(
     let period_type = if is_monthly { "monthly" } else { "daily" }.to_string();
     let dt: DateTime<Utc> =
         DateTime::from_timestamp_millis(now_ms).unwrap_or_else(Utc::now);
+    let entry_date = dt.format("%Y-%m-%d").to_string();
     let period_key = if is_monthly {
         dt.format("%Y-%m").to_string()
     } else {
-        dt.format("%Y-%m-%d").to_string()
+        entry_date.clone()
     };
 
     let engagement = (raw_turn_count as f32).min(20.0) / 20.0;
@@ -233,7 +372,7 @@ pub fn consolidate_now_tx(
         id: new_id(),
         period_type,
         period_key,
-        summary: diary_summary,
+        summary: diary_summary.clone(),
         emotional_tone,
         bond_delta,
         created_at: now_ms,
@@ -253,8 +392,25 @@ pub fn consolidate_now_tx(
         last_interaction_at: last_turn_ts.max(current_rel.last_interaction_at),
     };
 
+    let diary_title = format!(
+        "{}'s Daily Reflection ({})",
+        character_speaker_label(character_id),
+        entry_date
+    );
+
     let tx = conn.transaction().map_err(db_err)?;
+    compact_redundant_facts_in_tx(&tx, now_ms)?;
     insert_episode_in_tx(&tx, &episode, &episode_vec_bytes)?;
+    add_or_merge_diary_entry_in_tx(
+        &tx,
+        character_id,
+        &diary_title,
+        &diary_summary,
+        dominant_mood,
+        "consolidation",
+        Some(&entry_date),
+        now_ms,
+    )?;
     insert_diary_in_tx(&tx, &diary)?;
 
     tx.execute(
@@ -331,7 +487,7 @@ fn load_unconsolidated_turns(conn: &Connection) -> SoulResult<Vec<ChatTurn>> {
     Ok(out)
 }
 
-fn analyze_turns_emotion(turns: &[ChatTurn]) -> (f32, String) {
+fn analyze_turns_emotion(turns: &[ChatTurn]) -> (f32, String, EmotionTag) {
     let mut counts: HashMap<EmotionTag, usize> = HashMap::new();
     let mut valence_sum = 0.0_f32;
     let mut tagged_count = 0_usize;
@@ -372,7 +528,7 @@ fn analyze_turns_emotion(turns: &[ChatTurn]) -> (f32, String) {
         }
     };
 
-    (avg_valence, tone.to_string())
+    (avg_valence, tone.to_string(), dominant)
 }
 
 fn emotion_to_valence(tag: EmotionTag) -> f32 {
@@ -387,12 +543,20 @@ fn emotion_to_valence(tag: EmotionTag) -> f32 {
     }
 }
 
-fn build_episode_summary(turns: &[ChatTurn]) -> String {
+fn character_speaker_label(character_id: CharacterId) -> &'static str {
+    match character_id {
+        CharacterId::Coral => "Coral",
+        CharacterId::Kai => "Kai",
+    }
+}
+
+fn build_episode_summary(turns: &[ChatTurn], character_id: CharacterId) -> String {
+    let assistant_label = character_speaker_label(character_id);
     let mut snippets = Vec::new();
     for turn in turns.iter().take(8) {
         let speaker = match turn.role {
             ChatRole::User => "User",
-            ChatRole::Assistant => "Mina",
+            ChatRole::Assistant => assistant_label,
             ChatRole::System => "System",
         };
         let compact: String = turn

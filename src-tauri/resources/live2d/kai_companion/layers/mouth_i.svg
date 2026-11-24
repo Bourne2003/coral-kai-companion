@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Wide "Ee" / "I" vowel shape -->
+  <path d="M 377 424 Q 400 421 423 424 C 424 434, 414 439, 400 439 C 386 439, 376 434, 377 424 Z"
+        fill="#FFFFFF" stroke="#503F3C" stroke-width="3.0" stroke-linejoin="round"/>
+  <path d="M 380 430 Q 400 432 420 430" fill="none" stroke="#E0A7AF" stroke-width="1.6" opacity="0.85"/>
+</svg>

@@ -1,6 +1,7 @@
-import type { EmotionTag } from "../types/ipc";
+import type { CharacterId, EmotionTag } from "../types/ipc";
 
-export type AvatarEngineMode = "mina" | "live2d";
+export type { CharacterId };
+export type AvatarEngineMode = "vector" | "live2d";
 
 export interface CubismParams {
   ParamAngleX: number;

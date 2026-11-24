@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Neck & upper chest -->
+  <path d="M 368 456 L 368 532 C 354 548, 326 558, 314 580 L 486 580 C 474 558, 446 548, 432 532 L 432 456 Z"
+        fill="#FDECE4" stroke="#503F3C" stroke-width="4.2" stroke-linejoin="round"/>
+  <!-- Chin shadow on neck -->
+  <path d="M 369 464 Q 400 496 431 464 L 431 488 Q 400 512 369 488 Z" fill="#F2C9BA"/>
+
+  <!-- Crisp white collared blouse extending cleanly off bottom edge -->
+  <path d="M 332 538
+           C 286 554, 244 580, 224 636
+           C 202 700, 186 840, 182 1012
+           L 618 1012
+           C 614 840, 598 700, 576 636
+           C 556 580, 514 554, 468 538
+           L 434 522
+           L 400 562
+           L 366 522 Z"
+        fill="#FFFFFF" stroke="#503F3C" stroke-width="4.4" stroke-linejoin="round"/>
+
+  <!-- Soft cool fold shading & sleeve crease lines matching Coral reference -->
+  <path d="M 278 654 C 282 752, 282 860, 286 1008" fill="none" stroke="#503F3C" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M 522 654 C 518 752, 518 860, 514 1008" fill="none" stroke="#503F3C" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M 250 715 C 244 800, 240 890, 238 1008" fill="none" stroke="#E6EAF0" stroke-width="10" stroke-linecap="round"/>
+  <path d="M 550 715 C 556 800, 560 890, 562 1008" fill="none" stroke="#E6EAF0" stroke-width="10" stroke-linecap="round"/>
+  <path d="M 294 696 C 288 730, 288 756, 294 784" fill="none" stroke="#E6EAF0" stroke-width="6" stroke-linecap="round"/>
+  <path d="M 506 696 C 512 730, 512 756, 506 784" fill="none" stroke="#E6EAF0" stroke-width="6" stroke-linecap="round"/>
+  <path d="M 400 578 L 400 1008" fill="none" stroke="#E6EAF0" stroke-width="3" opacity="0.8"/>
+
+  <!-- Pointed White Shirt Collar -->
+  <path d="M 366 510 L 328 538 L 354 584 L 398 558 Z"
+        fill="#FFFFFF" stroke="#503F3C" stroke-width="4.0" stroke-linejoin="round"/>
+  <path d="M 434 510 L 472 538 L 446 584 L 402 558 Z"
+        fill="#FFFFFF" stroke="#503F3C" stroke-width="4.0" stroke-linejoin="round"/>
+  <path d="M 335 544 L 354 576 L 392 558" fill="none" stroke="#E6EAF0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 465 544 L 446 576 L 408 558" fill="none" stroke="#E6EAF0" stroke-width="3" stroke-linecap="round"/>
+</svg>

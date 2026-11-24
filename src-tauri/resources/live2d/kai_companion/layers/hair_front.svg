@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Curved top ahoge -->
+  <path d="M 412 184 C 424 146, 404 120, 368 124 C 388 134, 396 158, 394 184 Z"
+        fill="#315A70" stroke="#503F3C" stroke-width="4.2" stroke-linejoin="round"/>
+
+  <!-- Tousled spiky side & parted bangs matching Kai reference -->
+  <path d="M 400 174
+           C 346 172, 300 198, 274 222
+           C 256 218, 240 216, 228 214
+           C 234 228, 246 238, 260 244
+           C 238 258, 224 278, 218 296
+           C 230 288, 242 284, 250 284
+           C 230 314, 222 346, 212 372
+           C 206 384, 198 392, 190 396
+           C 208 402, 228 398, 246 382
+           C 246 398, 250 410, 260 416
+           C 264 388, 274 366, 286 348
+           C 288 332, 294 316, 306 298
+           C 302 326, 304 348, 312 362
+           C 326 336, 338 308, 344 278
+           C 348 310, 362 336, 386 346
+           C 386 318, 392 292, 400 272
+           C 408 302, 424 328, 448 342
+           C 444 312, 446 286, 454 264
+           C 464 294, 480 322, 502 344
+           C 508 358, 512 372, 514 386
+           C 526 378, 536 370, 542 360
+           C 554 378, 568 390, 588 390
+           C 574 376, 568 354, 564 332
+           C 562 314, 558 298, 552 284
+           C 564 282, 574 274, 580 264
+           C 566 266, 554 262, 542 252
+           C 520 206, 466 176, 400 174 Z"
+        fill="#315A70" stroke="#503F3C" stroke-width="4.4" stroke-linejoin="round"/>
+
+  <!-- Subtle inner tousled strand parting lines -->
+  <path d="M 358 214 C 350 236, 346 258, 344 278" fill="none" stroke="#503F3C" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M 454 220 C 458 238, 456 254, 454 266" fill="none" stroke="#503F3C" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M 294 318 C 284 342, 278 366, 276 390" fill="none" stroke="#503F3C" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M 508 318 C 518 342, 524 366, 524 390" fill="none" stroke="#503F3C" stroke-width="2.6" stroke-linecap="round"/>
+</svg>

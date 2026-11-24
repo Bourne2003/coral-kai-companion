@@ -3,13 +3,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use shared_types::{ModelInfo, ModelKind, ModelSource, RamSafetyTier, SoulError, SoulResult};
+use shared_types::{
+    CharacterId, ModelInfo, ModelKind, ModelSource, RamSafetyTier, SoulError, SoulResult,
+};
 use tauri::{AppHandle, Manager};
 
 /// Resolved filesystem paths for bundled resources and persistent user data.
 #[derive(Debug, Clone)]
 pub struct AppPaths {
     pub db_path: PathBuf,
+    pub coral_db_path: PathBuf,
+    pub kai_db_path: PathBuf,
+    pub config_path: PathBuf,
     pub bundled_llm_dir: PathBuf,
     pub bundled_asr_dir: PathBuf,
     pub bundled_embed_dir: PathBuf,
@@ -32,12 +37,16 @@ impl AppPaths {
 
         fs::create_dir_all(&app_data_dir)?;
 
+        let coral_profile_dir = app_data_dir.join("profiles/coral");
+        let kai_profile_dir = app_data_dir.join("profiles/kai");
         let user_llm_dir = app_data_dir.join("models/llm");
         let user_asr_dir = app_data_dir.join("models/asr");
         let user_embed_dir = app_data_dir.join("models/embed");
         let user_live2d_dir = app_data_dir.join("live2d");
 
         for dir in [
+            &coral_profile_dir,
+            &kai_profile_dir,
             &user_llm_dir,
             &user_asr_dir,
             &user_embed_dir,
@@ -46,8 +55,14 @@ impl AppPaths {
             fs::create_dir_all(dir)?;
         }
 
+        let coral_db_path = coral_profile_dir.join("soul_memory.sqlite");
+        let kai_db_path = kai_profile_dir.join("soul_memory.sqlite");
+
         Ok(Self {
-            db_path: app_data_dir.join("soul_memory.sqlite"),
+            db_path: coral_db_path.clone(),
+            coral_db_path,
+            kai_db_path,
+            config_path: app_data_dir.join("models_config.json"),
             bundled_llm_dir: resolve_bundled_subdir(resource_dir.as_deref(), "models/llm"),
             bundled_asr_dir: resolve_bundled_subdir(resource_dir.as_deref(), "models/asr"),
             bundled_embed_dir: resolve_bundled_subdir(resource_dir.as_deref(), "models/embed"),
@@ -57,6 +72,14 @@ impl AppPaths {
             user_embed_dir,
             user_live2d_dir,
         })
+    }
+
+    /// Return the isolated SQLite database path for the given character profile.
+    pub fn db_path_for(&self, character: CharacterId) -> &Path {
+        match character {
+            CharacterId::Coral => &self.coral_db_path,
+            CharacterId::Kai => &self.kai_db_path,
+        }
     }
 }
 
@@ -88,9 +111,9 @@ fn resolve_bundled_subdir(resource_dir: Option<&Path>, subpath: &str) -> PathBuf
 
 fn fallback_app_data_dir() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
-        return PathBuf::from(home).join("Library/Application Support/com.soulmate2d.app");
+        return PathBuf::from(home).join("Library/Application Support/com.coralkai.companion");
     }
-    std::env::temp_dir().join("soulmate2d")
+    std::env::temp_dir().join("coralkai-companion")
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,15 +126,24 @@ struct EmbedManifest {
     safety_tier: Option<RamSafetyTier>,
 }
 
-/// Scan bundled, user, and custom embedding models.
+fn is_same_canonical_path(a: &Path, active_canon: Option<&Path>) -> bool {
+    let Some(active) = active_canon else {
+        return false;
+    };
+    let canon_a = fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
+    canon_a == active
+}
+
+/// Scan bundled, user, and custom embedding models without failing when directories are empty.
 pub fn scan_embed_models(
     bundled_dir: &Path,
     user_dir: &Path,
     custom: &[ModelInfo],
-    onnx_active: bool,
+    active_embed_path: Option<&Path>,
 ) -> Vec<ModelInfo> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
+    let active_canon = active_embed_path.map(|p| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()));
 
     for (dir, source) in [
         (bundled_dir, ModelSource::Bundled),
@@ -120,72 +152,121 @@ pub fn scan_embed_models(
         if !dir.is_dir() {
             continue;
         }
+
         let manifest = fs::read_to_string(dir.join("manifest.json"))
             .ok()
             .and_then(|s| serde_json::from_str::<EmbedManifest>(&s).ok());
 
-        let filename = manifest
-            .as_ref()
-            .and_then(|m| m.filename.clone())
-            .unwrap_or_else(|| "model_quantized.onnx".to_string());
-        let model_path = dir.join(&filename);
-        let tokenizer_path = dir.join("tokenizer.json");
+        if let Some(ref m) = manifest {
+            let filename = m
+                .filename
+                .clone()
+                .unwrap_or_else(|| "model_quantized.onnx".to_string());
+            let model_path = dir.join(&filename);
+            let canon = fs::canonicalize(&model_path).unwrap_or_else(|_| model_path.clone());
+            if seen.insert(canon) {
+                let size_bytes = fs::metadata(&model_path).map(|md| md.len()).unwrap_or(0);
+                let valid = soul_memory::validate_onnx_embed_file(&model_path).is_ok();
+                let estimated_ram_mb = m.estimated_ram_mb.unwrap_or(256);
+                let safety_tier = m.safety_tier.unwrap_or(RamSafetyTier::Safe8Gb);
+                let is_active = valid && is_same_canonical_path(&model_path, active_canon.as_deref());
+                let notes = if !valid {
+                    Some("Missing or invalid .onnx file or sibling tokenizer.json".to_string())
+                } else if is_active {
+                    Some("ONNX Runtime active (384-dim multilingual Thai/English)".to_string())
+                } else {
+                    Some("ONNX embedding weights ready (activate in Models)".to_string())
+                };
 
-        if !model_path.is_file() && manifest.is_none() {
-            continue;
+                out.push(ModelInfo {
+                    id: m
+                        .id
+                        .clone()
+                        .unwrap_or_else(|| format!("embed-{}", dir_label(dir))),
+                    name: m.name.clone().unwrap_or(filename),
+                    kind: ModelKind::Embed,
+                    path: model_path.to_string_lossy().into_owned(),
+                    size_bytes,
+                    estimated_ram_mb,
+                    source,
+                    safety_tier,
+                    is_active,
+                    valid,
+                    notes,
+                });
+            }
         }
 
-        let canon = fs::canonicalize(&model_path).unwrap_or_else(|_| model_path.clone());
-        if !seen.insert(canon) {
-            continue;
+        if let Ok(entries) = fs::read_dir(dir) {
+            let mut onnx_files: Vec<PathBuf> = entries
+                .filter_map(|e| e.ok().map(|entry| entry.path()))
+                .filter(|p| {
+                    p.is_file()
+                        && p.extension()
+                            .and_then(|ext| ext.to_str())
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("onnx"))
+                })
+                .collect();
+            onnx_files.sort();
+
+            for model_path in onnx_files {
+                let canon = fs::canonicalize(&model_path).unwrap_or_else(|_| model_path.clone());
+                if !seen.insert(canon) {
+                    continue;
+                }
+                let size_bytes = fs::metadata(&model_path).map(|md| md.len()).unwrap_or(0);
+                let valid = soul_memory::validate_onnx_embed_file(&model_path).is_ok();
+                let estimated_ram_mb = ((size_bytes / (1024 * 1024)).saturating_add(128)).max(128);
+                let is_active =
+                    valid && is_same_canonical_path(&model_path, active_canon.as_deref());
+                let stem = model_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("embed-onnx");
+                let filename = model_path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("model.onnx")
+                    .to_string();
+
+                out.push(ModelInfo {
+                    id: format!("embed-{}-{}", dir_label(dir), sanitize_slug(stem)),
+                    name: filename,
+                    kind: ModelKind::Embed,
+                    path: model_path.to_string_lossy().into_owned(),
+                    size_bytes,
+                    estimated_ram_mb,
+                    source,
+                    safety_tier: RamSafetyTier::Safe8Gb,
+                    is_active,
+                    valid,
+                    notes: if !valid {
+                        Some("Missing sibling tokenizer.json or invalid ONNX header".to_string())
+                    } else if is_active {
+                        Some("ONNX Runtime active (384-dim)".to_string())
+                    } else {
+                        Some("ONNX embedding model ready".to_string())
+                    },
+                });
+            }
         }
-
-        let size_bytes = fs::metadata(&model_path).map(|m| m.len()).unwrap_or(0);
-        let valid = model_path.is_file() && tokenizer_path.is_file();
-        let estimated_ram_mb = manifest
-            .as_ref()
-            .and_then(|m| m.estimated_ram_mb)
-            .unwrap_or(256);
-        let safety_tier = manifest
-            .as_ref()
-            .and_then(|m| m.safety_tier)
-            .unwrap_or(RamSafetyTier::Safe8Gb);
-
-        let is_active = valid && onnx_active && source == ModelSource::Bundled;
-        let notes = if !valid {
-            Some("Missing model_quantized.onnx or tokenizer.json".to_string())
-        } else if is_active {
-            Some("ONNX Runtime active (384-dim multilingual Thai/English)".to_string())
-        } else {
-            Some("ONNX weights ready (char-ngram fallback active if dylib missing)".to_string())
-        };
-
-        out.push(ModelInfo {
-            id: manifest
-                .as_ref()
-                .and_then(|m| m.id.clone())
-                .unwrap_or_else(|| format!("embed-{}", dir_label(dir))),
-            name: manifest
-                .as_ref()
-                .and_then(|m| m.name.clone())
-                .unwrap_or_else(|| filename.clone()),
-            kind: ModelKind::Embed,
-            path: model_path.to_string_lossy().into_owned(),
-            size_bytes,
-            estimated_ram_mb,
-            source,
-            safety_tier,
-            is_active,
-            valid,
-            notes,
-        });
     }
 
     for item in custom {
         let p = PathBuf::from(&item.path);
-        let canon = fs::canonicalize(&p).unwrap_or(p);
+        let canon = fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
         if seen.insert(canon) {
-            out.push(item.clone());
+            let mut cloned = item.clone();
+            cloned.valid = soul_memory::validate_onnx_embed_file(&p).is_ok();
+            cloned.is_active =
+                cloned.valid && is_same_canonical_path(&p, active_canon.as_deref());
+            if !cloned.valid {
+                cloned.notes =
+                    Some("ONNX file or sibling tokenizer.json missing on disk".to_string());
+            } else if cloned.is_active {
+                cloned.notes = Some("ONNX Runtime active (384-dim)".to_string());
+            }
+            out.push(cloned);
         }
     }
 
@@ -234,13 +315,16 @@ pub fn inspect_live2d_folder(
         .ok()
         .and_then(|s| serde_json::from_str::<Live2dManifest>(&s).ok());
 
-    let model3_path = find_model3_file(&folder, manifest.as_ref().and_then(|m| m.model_file.as_deref()))
-        .ok_or_else(|| {
-            SoulError::InvalidInput(format!(
-                "No .model3.json file found inside Live2D folder: {}",
-                folder.display()
-            ))
-        })?;
+    let model3_path = find_model3_file(
+        &folder,
+        manifest.as_ref().and_then(|m| m.model_file.as_deref()),
+    )
+    .ok_or_else(|| {
+        SoulError::InvalidInput(format!(
+            "No .model3.json file found inside Live2D folder: {}",
+            folder.display()
+        ))
+    })?;
 
     // Validate JSON structure of .model3.json
     let raw_model3 = fs::read_to_string(&model3_path)?;
@@ -328,7 +412,8 @@ pub fn scan_live2d_models(
             subdirs.sort();
 
             for subdir in subdirs {
-                if let Ok((canon_folder, info)) = inspect_live2d_folder(&subdir, source, active_id) {
+                if let Ok((canon_folder, info)) = inspect_live2d_folder(&subdir, source, active_id)
+                {
                     if seen_folders.insert(canon_folder.clone()) {
                         allowed_dirs.push(canon_folder);
                         models.push(info);
@@ -348,6 +433,7 @@ pub fn scan_live2d_models(
         let canon = fs::canonicalize(&folder).unwrap_or(folder);
         if seen_folders.insert(canon.clone()) {
             let mut cloned = item.clone();
+            cloned.valid = Path::new(&cloned.path).exists();
             cloned.is_active = active_id == Some(cloned.id.as_str());
             allowed_dirs.push(canon);
             models.push(cloned);
@@ -401,96 +487,93 @@ fn dir_label(dir: &Path) -> String {
         .to_string()
 }
 
+pub(crate) fn sanitize_slug(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "custom".to_string()
+    } else {
+        trimmed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn bundled_resources_discover_embed_and_live2d() {
+    fn byom_resources_handle_empty_embed_and_discover_coral_and_kai() {
         let res_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
         let embed_dir = res_root.join("models/embed");
         let live2d_dir = res_root.join("live2d");
-        let empty_user = std::env::temp_dir().join("soulmate2d_test_empty_user_models");
+        let empty_user = std::env::temp_dir().join(format!(
+            "soulmate2d_test_empty_user_{}",
+            shared_types::new_id()
+        ));
 
-        let embed_models = scan_embed_models(&embed_dir, &empty_user, &[], true);
+        // Zero bundled embed weights (only .gitkeep) must return empty cleanly with no error.
+        let embed_models = scan_embed_models(&embed_dir, &empty_user, &[], None);
         assert!(
-            !embed_models.is_empty(),
-            "Expected bundled embed model in {}",
-            embed_dir.display()
+            embed_models.is_empty(),
+            "Expected zero bundled embed models in BYOM mode, got {embed_models:?}"
         );
-        assert_eq!(embed_models[0].id, "paraphrase-multilingual-minilm-l12-v2");
-        assert!(embed_models[0].valid);
-        assert!(embed_models[0].is_active);
 
+        // If a manifest exists without its .onnx file, it should be flagged valid = false.
+        fs::create_dir_all(&empty_user).unwrap();
+        fs::write(
+            empty_user.join("manifest.json"),
+            r#"{"id":"missing-embed","name":"Missing","filename":"missing.onnx"}"#,
+        )
+        .unwrap();
+        let invalid_manifest_models = scan_embed_models(&embed_dir, &empty_user, &[], None);
+        assert_eq!(invalid_manifest_models.len(), 1);
+        assert!(!invalid_manifest_models[0].valid);
+        let _ = fs::remove_dir_all(&empty_user);
+
+        // Bundled Live2D should discover both coral_companion and kai_companion.
         let (allowed_dirs, live2d_models) = scan_live2d_models(
             &live2d_dir,
             &empty_user,
             &[],
-            Some("default_companion"),
+            Some("coral_companion"),
         );
-        assert!(!allowed_dirs.is_empty());
-        assert_eq!(live2d_models.len(), 1);
-        assert_eq!(live2d_models[0].id, "default_companion");
-        assert!(live2d_models[0].valid);
-        assert!(live2d_models[0].is_active);
-        assert!(live2d_models[0].path.ends_with("soulmate.model3.json"));
+        assert_eq!(allowed_dirs.len(), 2);
+        assert_eq!(live2d_models.len(), 2);
+
+        let coral = live2d_models
+            .iter()
+            .find(|m| m.id == "coral_companion")
+            .expect("coral_companion bundle present");
+        assert!(coral.valid);
+        assert!(coral.is_active);
+        assert!(coral.path.ends_with("soulmate.model3.json"));
+
+        let kai = live2d_models
+            .iter()
+            .find(|m| m.id == "kai_companion")
+            .expect("kai_companion bundle present");
+        assert!(kai.valid);
+        assert!(!kai.is_active);
+        assert!(kai.path.ends_with("soulmate.model3.json"));
     }
 
     #[test]
-    fn bundled_onnx_dylib_loads_in_soul_memory_store() {
-        let embed_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/models/embed");
+    fn soul_memory_store_boots_in_zero_model_fallback_mode() {
         let db_path = std::env::temp_dir().join(format!(
-            "soulmate2d_tauri_onnx_test_{}.sqlite",
+            "soulmate2d_tauri_byom_mem_{}.sqlite",
             shared_types::new_id()
         ));
-        let store = soul_memory::SoulMemoryStore::open(&db_path, Some(&embed_dir))
-            .expect("open SoulMemoryStore with bundled embed_dir");
-        assert_eq!(store.embedder_kind(), "onnx");
-        let _ = std::fs::remove_file(&db_path);
-    }
-
-    #[tokio::test]
-    #[ignore = "exercises co-resident Metal Whisper + Metal Llama + ONNX in one binary"]
-    async fn co_resident_metal_whisper_and_llama_smoke_test() {
-        use shared_types::{BrainEngine, MemoryRetrievalContext, VoiceEngine};
-
-        let res_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
-        let llm_dir = res_root.join("models/llm");
-        let asr_dir = res_root.join("models/asr");
-        let embed_dir = res_root.join("models/embed");
-        let empty_user = std::env::temp_dir().join("soulmate2d_smoke_user");
-
-        let db_path = std::env::temp_dir().join(format!(
-            "soulmate2d_coresident_{}.sqlite",
-            shared_types::new_id()
-        ));
-        let memory = soul_memory::SoulMemoryStore::open(&db_path, Some(&embed_dir)).unwrap();
-        assert_eq!(memory.embedder_kind(), "onnx");
-
-        let voice = voice_io::VoicePipeline::with_asr_dirs(Some(asr_dir), Some(empty_user.clone()));
-        let asr_models = voice.scan_asr_models().unwrap();
-        voice.load_asr_model(&asr_models[0]).await.unwrap();
-        let silence = vec![0.0_f32; 16_000];
-        let _ = voice.transcribe_pcm(silence).await.unwrap();
-
-        let brain = brain_llm::LlmBrainManager::with_dirs(llm_dir, empty_user);
-        let llm_models = brain.scan_models().unwrap();
-        brain.hot_swap(&llm_models[0]).await.unwrap();
-
-        let reply = brain
-            .generate_reply(
-                "สวัสดีมีนา",
-                &[],
-                &MemoryRetrievalContext::default(),
-                Box::new(|_| {}),
-            )
-            .await
-            .unwrap();
-        println!("Co-resident reply: {:?} -> {}", reply.emotion.tag, reply.turn.content);
-        assert!(!reply.turn.content.is_empty());
-
-        brain.unload_model().await.unwrap();
-        voice.unload_asr_model().await.unwrap();
-        let _ = std::fs::remove_file(&db_path);
+        let store = soul_memory::SoulMemoryStore::open(&db_path, None)
+            .expect("open SoulMemoryStore without bundled ONNX weights");
+        assert_eq!(store.embedder_kind(), "ngram-fallback");
+        assert!(store.active_embed_model_path().is_none());
+        let _ = fs::remove_file(&db_path);
     }
 }

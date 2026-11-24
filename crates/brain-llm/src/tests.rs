@@ -12,7 +12,10 @@ use shared_types::{
 use crate::backend::{LoadedModelInstance, ModelBackend};
 use crate::manager::LlmBrainManager;
 use crate::parser::EmotionStreamParser;
-use crate::prompt::{ResolvedLanguage, build_chat_messages, build_soul_system_prompt, resolve_reply_language};
+use crate::prompt::{
+    CharacterPersona, ResolvedLanguage, build_chat_messages, build_soul_system_prompt,
+    build_soul_system_prompt_for_persona, resolve_reply_language,
+};
 use crate::ram_guard::{
     AdaptiveInferenceParams, RamProbe, RamSnapshot, adaptive_params_for_ram,
     classify_ram_safety_tier, estimate_gguf_ram_mb,
@@ -373,7 +376,8 @@ fn bilingual_soul_prompt_with_memory_injection() {
 
     let thai_prompt = build_soul_system_prompt("วันนี้เหนื่อยจัง", &memory_ctx, LanguagePref::Auto);
     assert!(thai_prompt.contains("/no_think"));
-    assert!(thai_prompt.contains("Mina (มีนา)"));
+    assert!(thai_prompt.contains("Coral (คอรัล)"));
+    assert!(thai_prompt.contains("ค่ะ / คะ / นะคะ"));
     assert!(thai_prompt.contains("[emotion: <tag>, intensity: <0.0..1.0>]"));
     assert!(thai_prompt.contains("iced matcha"));
     assert!(!thai_prompt.contains("Old City")); // Superseded fact excluded!
@@ -381,6 +385,23 @@ fn bilingual_soul_prompt_with_memory_injection() {
     assert!(thai_prompt.contains("Felt grateful for our late night chat"));
     assert!(thai_prompt.contains("trust: 0.82"));
     assert!(thai_prompt.contains("ภาษาไทย"));
+
+    let kai_prompt = build_soul_system_prompt_for_persona(
+        "วันนี้เหนื่อยจัง",
+        &memory_ctx,
+        LanguagePref::Auto,
+        CharacterPersona::Kai,
+    );
+    assert!(kai_prompt.contains("Kai (ไค)"));
+    assert!(kai_prompt.contains("ครับ / นะครับ"));
+    assert!(kai_prompt.contains("Kai's Recent Dream Diary Reflections"));
+    assert!(!kai_prompt.contains("Coral (คอรัล)"));
+
+    assert_eq!(CharacterPersona::from_id("coral"), Some(CharacterPersona::Coral));
+    assert_eq!(CharacterPersona::from_id("KAI"), Some(CharacterPersona::Kai));
+    assert_eq!(CharacterPersona::from_id("unknown"), None);
+    assert_eq!(CharacterPersona::Coral.as_id(), "coral");
+    assert_eq!(CharacterPersona::Kai.as_id(), "kai");
 
     let en_prompt = build_soul_system_prompt("Hey Mina!", &memory_ctx, LanguagePref::English);
     assert!(en_prompt.contains("conversational English"));
@@ -797,4 +818,659 @@ async fn real_metal_gguf_smoke_test() {
     );
     manager.unload_model().await.expect("unload real Metal GGUF");
     assert!(manager.active_model().is_none());
+}
+
+#[tokio::test]
+async fn byom_empty_state_persona_restore_and_remove() {
+    let root = TempDirGuard::new("brain_llm_byom");
+    let bundled = root.path().join("bundled");
+    let user = root.path().join("user");
+    let custom = root.path().join("custom");
+    fs::create_dir_all(&bundled).unwrap();
+    fs::create_dir_all(&user).unwrap();
+    fs::create_dir_all(&custom).unwrap();
+
+    let manager = LlmBrainManager::with_components(
+        bundled,
+        user,
+        Arc::new(MockRamProbe::new(8192, 4200, 200)),
+        Arc::new(MockBackend::new(vec![])),
+    );
+
+    // Default persona is Coral; can switch to Kai cleanly.
+    assert_eq!(manager.persona(), CharacterPersona::Coral);
+    manager.set_persona(CharacterPersona::Kai);
+    assert_eq!(manager.persona(), CharacterPersona::Kai);
+
+    // Empty-state generation returns ModelNotFound with bilingual BYOM guidance.
+    let err = manager
+        .generate_reply_with_callbacks(
+            "สวัสดี",
+            &[],
+            &MemoryRetrievalContext::default(),
+            LanguagePref::Auto,
+            Box::new(|_| {}),
+            Box::new(|_| {}),
+        )
+        .await
+        .expect_err("empty LLM state should return ModelNotFound");
+    match err {
+        SoulError::ModelNotFound(msg) => {
+            assert!(msg.contains(".gguf"));
+            assert!(msg.contains("Models"));
+        }
+        other => panic!("expected SoulError::ModelNotFound, got {other:?}"),
+    }
+
+    // Restore custom models skips missing/corrupt entries and keeps valid ones unloaded in RAM.
+    let valid_a = custom.join("coral-q4.gguf");
+    let valid_b = custom.join("kai-q4.gguf");
+    let bad_file = custom.join("bad.gguf");
+    let missing_file = custom.join("missing.gguf");
+    write_dummy_gguf(&valid_a, b"GGUF", 1024 * 1024);
+    write_dummy_gguf(&valid_b, b"GGUF", 1024 * 1024);
+    write_dummy_gguf(&bad_file, b"NOPE", 1024);
+
+    let restored = manager.restore_custom_models(&[
+        (valid_a.clone(), Some("Coral Q4".to_string())),
+        (bad_file, Some("Bad".to_string())),
+        (missing_file, None),
+        (valid_b.clone(), None),
+    ]);
+    assert_eq!(restored.len(), 2);
+    assert!(manager.active_model().is_none());
+
+    let scanned = manager.scan_models().expect("scan restored models");
+    assert_eq!(scanned.len(), 2);
+
+    // Remove by model id and by path.
+    let id_a = restored[0].id.clone();
+    assert!(manager.remove_custom_model(&id_a).unwrap());
+    assert!(!manager.remove_custom_model(&id_a).unwrap());
+    assert!(manager.remove_custom_model(&valid_b.to_string_lossy()).unwrap());
+    assert!(manager.scan_models().unwrap().is_empty());
+}
+
+struct MockActionSink {
+    diaries: StdMutex<Vec<shared_types::DiaryEntry>>,
+    bio: StdMutex<shared_types::PersonaBio>,
+    profile: StdMutex<shared_types::UserProfile>,
+}
+
+impl MockActionSink {
+    fn new(character_id: shared_types::CharacterId) -> Self {
+        Self {
+            diaries: StdMutex::new(Vec::new()),
+            bio: StdMutex::new(shared_types::PersonaBio {
+                character_id,
+                display_name: "Coral".to_string(),
+                traits: "warm".to_string(),
+                self_reflection: "growing".to_string(),
+                favorite_topics: "tea".to_string(),
+                updated_at: 100,
+            }),
+            profile: StdMutex::new(shared_types::UserProfile::default()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::plugins::PluginActionSink for MockActionSink {
+    async fn write_diary(
+        &self,
+        title: &str,
+        content: &str,
+        mood: EmotionTag,
+    ) -> SoulResult<shared_types::DiaryEntry> {
+        let entry = shared_types::DiaryEntry {
+            id: "d-1".to_string(),
+            character_id: shared_types::CharacterId::Coral,
+            entry_date: "2026-11-24".to_string(),
+            title: title.to_string(),
+            content: content.to_string(),
+            mood,
+            source: "plugin".to_string(),
+            merged_count: 1,
+            created_at: 1000,
+            updated_at: 1000,
+        };
+        self.diaries.lock().unwrap().push(entry.clone());
+        Ok(entry)
+    }
+
+    async fn update_persona_bio(
+        &self,
+        traits: Option<String>,
+        self_reflection: Option<String>,
+        favorite_topics: Option<String>,
+    ) -> SoulResult<shared_types::PersonaBio> {
+        let mut guard = self.bio.lock().unwrap();
+        if let Some(t) = traits {
+            guard.traits = t;
+        }
+        if let Some(r) = self_reflection {
+            guard.self_reflection = r;
+        }
+        if let Some(f) = favorite_topics {
+            guard.favorite_topics = f;
+        }
+        guard.updated_at = 2000;
+        Ok(guard.clone())
+    }
+
+    async fn update_user_profile(
+        &self,
+        display_name: Option<String>,
+        timezone: Option<String>,
+        location: Option<String>,
+        notes: Option<String>,
+    ) -> SoulResult<shared_types::UserProfile> {
+        let mut guard = self.profile.lock().unwrap();
+        if let Some(n) = display_name {
+            guard.display_name = n;
+        }
+        if let Some(tz) = timezone {
+            guard.timezone = tz;
+        }
+        if let Some(loc) = location {
+            guard.location = loc;
+        }
+        if let Some(note) = notes {
+            guard.notes = note;
+        }
+        guard.updated_at = 3000;
+        Ok(guard.clone())
+    }
+}
+
+struct FailingTestPlugin;
+
+#[async_trait::async_trait]
+impl crate::plugins::CompanionPlugin for FailingTestPlugin {
+    fn name(&self) -> &'static str {
+        "failing_test"
+    }
+
+    fn description(&self) -> &'static str {
+        "Always returns an error to verify fault isolation."
+    }
+
+    fn builtin(&self) -> bool {
+        false
+    }
+
+    fn supported_actions(&self) -> Vec<String> {
+        vec!["always_fail".to_string()]
+    }
+
+    async fn execute(
+        &self,
+        _action: &str,
+        _params: &serde_json::Value,
+        _ctx: &crate::plugins::PluginContext,
+    ) -> SoulResult<shared_types::ActionResult> {
+        Err(SoulError::Internal("boom".to_string()))
+    }
+}
+
+#[tokio::test]
+async fn plugin_registry_fault_isolation_and_builtin_plugins() {
+    let registry = crate::plugins::PluginRegistry::new_with_builtins();
+    let plugins = registry.list_plugins();
+    assert_eq!(plugins.len(), 3);
+    assert!(plugins.iter().all(|p| p.enabled && p.builtin));
+
+    let actions = registry.enabled_actions();
+    assert!(actions.contains(&"get_current_time".to_string()));
+    assert!(actions.contains(&"get_day_part".to_string()));
+    assert!(actions.contains(&"write_diary".to_string()));
+    assert!(actions.contains(&"update_bio".to_string()));
+    assert!(actions.contains(&"update_user_profile".to_string()));
+
+    let sink = Arc::new(MockActionSink::new(shared_types::CharacterId::Coral));
+    let ctx = crate::plugins::PluginContext {
+        character_id: shared_types::CharacterId::Coral,
+        user_profile: None,
+        persona_bio: None,
+        sink: Some(sink.clone()),
+    };
+
+    // 1. TimeAwarenessPlugin
+    let time_res = registry
+        .dispatch("get_current_time", &serde_json::json!({}), &ctx)
+        .await;
+    assert!(time_res.success);
+    assert_eq!(time_res.plugin_name, "time_awareness");
+    assert!(time_res.data.as_ref().unwrap()["date"].as_str().is_some());
+
+    let day_part_res = registry
+        .dispatch("get_day_part", &serde_json::json!({}), &ctx)
+        .await;
+    assert!(day_part_res.success);
+    let part = day_part_res.data.as_ref().unwrap()["dayPart"]
+        .as_str()
+        .unwrap();
+    assert!(["morning", "afternoon", "evening", "late_night"].contains(&part));
+
+    // 2. DiaryWriterPlugin
+    let diary_res = registry
+        .dispatch(
+            "write_diary",
+            &serde_json::json!({
+                "title": "Evening Tea",
+                "content": "We talked about Rust traits.",
+                "mood": "joy"
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(diary_res.success);
+    assert_eq!(diary_res.plugin_name, "diary_writer");
+    assert_eq!(sink.diaries.lock().unwrap().len(), 1);
+    assert_eq!(sink.diaries.lock().unwrap()[0].mood, EmotionTag::Joy);
+
+    // 3. BioUpdaterPlugin
+    let bio_res = registry
+        .dispatch(
+            "update_bio",
+            &serde_json::json!({
+                "traits": "gentle, curious",
+                "favoriteTopics": "music, astronomy"
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(bio_res.success);
+    assert_eq!(sink.bio.lock().unwrap().traits, "gentle, curious");
+    assert_eq!(sink.bio.lock().unwrap().favorite_topics, "music, astronomy");
+
+    let profile_res = registry
+        .dispatch(
+            "update_user_profile",
+            &serde_json::json!({
+                "displayName": "Goshi",
+                "timezone": "Asia/Bangkok",
+                "location": "Bangkok"
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(profile_res.success);
+    assert_eq!(sink.profile.lock().unwrap().display_name, "Goshi");
+    assert_eq!(sink.profile.lock().unwrap().location, "Bangkok");
+
+    // 4. Disable, fail, missing, and unregister fault isolation
+    assert!(registry.set_enabled("diary_writer", false));
+    assert!(
+        !registry
+            .enabled_actions()
+            .contains(&"write_diary".to_string())
+    );
+    let disabled_res = registry
+        .dispatch(
+            "write_diary",
+            &serde_json::json!({ "content": "ignored" }),
+            &ctx,
+        )
+        .await;
+    assert!(!disabled_res.success);
+    assert_eq!(disabled_res.plugin_name, "diary_writer");
+
+    registry.register(Arc::new(FailingTestPlugin));
+    let fail_res = registry
+        .dispatch("always_fail", &serde_json::json!({}), &ctx)
+        .await;
+    assert!(!fail_res.success);
+    assert!(fail_res.summary.contains("boom"));
+
+    assert!(registry.unregister("failing_test"));
+    let missing_res = registry
+        .dispatch("always_fail", &serde_json::json!({}), &ctx)
+        .await;
+    assert!(!missing_res.success);
+    assert!(missing_res.plugin_name.is_empty());
+}
+
+#[test]
+fn parse_action_directives_handles_json_kv_and_malformed_tags() {
+    let raw = "สวัสดีค่ะ [action: get_current_time] วันนี้อากาศดี [not_action] นะคะ \
+               [action: write_diary, {\"title\": \"Tea [ok]\", \"content\": \"Talked\", \"tags\": [1, 2], \"mood\": \"joy\"}] \
+               [action: update_user_profile, display_name=\"Alice\", location=Bangkok]";
+    let (clean, actions) = crate::plugins::parse_action_directives(raw);
+    assert!(!clean.contains("[action:"));
+    assert!(clean.contains("[not_action]"));
+    assert!(clean.contains("สวัสดีค่ะ"));
+    assert_eq!(actions.len(), 3);
+    assert_eq!(actions[0].action, "get_current_time");
+    assert_eq!(actions[1].action, "write_diary");
+    assert_eq!(actions[1].params["title"], "Tea [ok]");
+    assert_eq!(actions[1].params["tags"], serde_json::json!([1, 2]));
+    assert_eq!(actions[2].action, "update_user_profile");
+    assert_eq!(actions[2].params["display_name"], "Alice");
+    assert_eq!(actions[2].params["location"], "Bangkok");
+
+    // Malformed directives must never panic or leak `[action:` into spoken text.
+    let malformed = "Hello [action: ] [action: bad_json, {not valid json] world [action: unclosed";
+    let (clean_bad, bad_actions) = crate::plugins::parse_action_directives(malformed);
+    assert!(!clean_bad.contains("[action:"));
+    assert!(clean_bad.contains("Hello"));
+    assert!(clean_bad.contains("world"));
+    assert!(bad_actions.is_empty());
+}
+
+#[test]
+fn mcp_config_defaults_claude_format_and_malformed_resilience() {
+    let default_cfg = shared_types::McpConfig::default();
+    assert!(!default_cfg.enabled);
+    assert!(default_cfg.servers.is_empty());
+
+    let root = TempDirGuard::new("brain_llm_mcp_cfg");
+    let claude_path = root.path().join("claude_mcp.json");
+    fs::write(
+        &claude_path,
+        r#"{
+            "mcpServers": {
+                "weather": {
+                    "command": "/bin/sh",
+                    "args": ["-c", "echo ok"],
+                    "disabled": false,
+                    "timeoutMs": 3000
+                },
+                "remote": {
+                    "url": "http://127.0.0.1:9999/sse",
+                    "disabled": true
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let parsed = crate::mcp::load_mcp_config_file(&claude_path).expect("parse Claude mcpServers");
+    assert!(!parsed.enabled);
+    assert_eq!(parsed.servers.len(), 2);
+    assert_eq!(parsed.servers[0].name, "remote");
+    assert_eq!(parsed.servers[0].transport, "sse");
+    assert!(!parsed.servers[0].enabled);
+    assert_eq!(parsed.servers[1].name, "weather");
+    assert_eq!(parsed.servers[1].transport, "stdio");
+    assert!(parsed.servers[1].enabled);
+    assert_eq!(parsed.servers[1].timeout_ms, 3000);
+
+    // Malformed / missing file resilience
+    let bad_path = root.path().join("broken.json");
+    fs::write(&bad_path, "{ not valid json !!!").unwrap();
+    assert!(crate::mcp::load_mcp_config_file(&bad_path).is_err());
+    let fallback = crate::mcp::load_mcp_config_safe(&bad_path);
+    assert!(!fallback.enabled);
+    assert!(fallback.servers.is_empty());
+
+    let missing = root.path().join("missing.json");
+    let fallback_missing = crate::mcp::load_mcp_config_safe(&missing);
+    assert!(!fallback_missing.enabled);
+}
+
+#[tokio::test]
+async fn mcp_pure_rust_stdio_round_trip_sandbox_and_timeout() {
+    // 1. Direct JSON-RPC round-trip + env_clear sandbox check via inline /bin/sh
+    let server = shared_types::McpServerConfig {
+        name: "sh_echo".to_string(),
+        transport: "stdio".to_string(),
+        command: Some("/bin/sh".to_string()),
+        args: vec![
+            "-c".to_string(),
+            r#"read line; printf '{"jsonrpc":"2.0","id":1,"result":{"echo":true,"userEnv":"%s","hasPath":%s}}\n' "${USER:-}" "$( [ -n "${PATH:-}" ] && echo true || echo false )""#.to_string(),
+        ],
+        url: None,
+        enabled: true,
+        timeout_ms: 2000,
+    };
+
+    let res = crate::mcp::jsonrpc_stdio_request(&server, "ping", serde_json::json!({"hi": 1}))
+        .await
+        .expect("stdio json-rpc round-trip");
+    assert_eq!(res["echo"], true);
+    assert_eq!(res["userEnv"], "");
+    assert_eq!(res["hasPath"], true);
+
+    // 2. Timeout failure degrades cleanly without hanging
+    let slow_server = shared_types::McpServerConfig {
+        name: "sh_slow".to_string(),
+        transport: "stdio".to_string(),
+        command: Some("/bin/sh".to_string()),
+        args: vec!["-c".to_string(), "sleep 2".to_string()],
+        url: None,
+        enabled: true,
+        timeout_ms: 80,
+    };
+    let timeout_err = crate::mcp::jsonrpc_stdio_request(&slow_server, "ping", serde_json::json!({}))
+        .await
+        .expect_err("slow stdio process must time out");
+    assert!(timeout_err.to_string().contains("timed out"));
+
+    // 3. Full McpClientManager + McpPluginBridge discovery & dispatch via /bin/sh MCP loop
+    let mcp_loop_script = r#"
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2024-11-05","capabilities":{}}}\n' "$id"
+      ;;
+    *'"method":"tools/list"'*)
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo_tool","description":"Echoes text"}]}}\n' "$id"
+      ;;
+    *'"method":"tools/call"'*)
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"mcp-ok"}]}}\n' "$id"
+      ;;
+  esac
+done
+"#;
+
+    let manager = Arc::new(crate::mcp::McpClientManager::new(shared_types::McpConfig {
+        enabled: true,
+        config_path: None,
+        servers: vec![shared_types::McpServerConfig {
+            name: "local_sh".to_string(),
+            transport: "stdio".to_string(),
+            command: Some("/bin/sh".to_string()),
+            args: vec!["-c".to_string(), mcp_loop_script.to_string()],
+            url: None,
+            enabled: true,
+            timeout_ms: 2000,
+        }],
+    }));
+
+    let tools = manager.refresh_tools().await;
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].server_name, "local_sh");
+    assert_eq!(tools[0].tool_name, "echo_tool");
+
+    let bridge = Arc::new(crate::mcp::McpPluginBridge::new(Arc::clone(&manager)));
+    let registry = crate::plugins::PluginRegistry::new();
+    registry.register(bridge);
+
+    assert_eq!(
+        registry.enabled_actions(),
+        vec!["mcp:local_sh:echo_tool".to_string()]
+    );
+
+    let call_res = registry
+        .dispatch(
+            "mcp:local_sh:echo_tool",
+            &serde_json::json!({"msg": "hello"}),
+            &crate::plugins::PluginContext::default(),
+        )
+        .await;
+    assert!(call_res.success);
+    assert_eq!(call_res.plugin_name, "mcp_bridge");
+    assert_eq!(call_res.data.unwrap()["content"][0]["text"], "mcp-ok");
+}
+
+#[tokio::test]
+async fn mcp_pure_rust_sse_transport_round_trip() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let server_task = tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        let mut buf = [0u8; 4096];
+        let n = sock.read(&mut buf).await.unwrap();
+        let req = String::from_utf8_lossy(&buf[..n]);
+        assert!(req.contains("tools/list"));
+        let body = "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"tools\":[{\"name\":\"ping\",\"description\":\"SSE ping\"}]}}\n\n";
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        sock.write_all(resp.as_bytes()).await.unwrap();
+    });
+
+    let manager = crate::mcp::McpClientManager::new(shared_types::McpConfig {
+        enabled: true,
+        config_path: None,
+        servers: vec![shared_types::McpServerConfig {
+            name: "sse_mock".to_string(),
+            transport: "sse".to_string(),
+            command: None,
+            args: Vec::new(),
+            url: Some(format!("http://{addr}/sse")),
+            enabled: true,
+            timeout_ms: 2000,
+        }],
+    });
+
+    let tools = manager.refresh_tools().await;
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].tool_name, "ping");
+    server_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn enriched_prompt_and_single_chain_inner_life_generation() {
+    let root = TempDirGuard::new("brain_llm_inner_life");
+    let bundled = root.path().join("bundled");
+    let user = root.path().join("user");
+    fs::create_dir_all(&bundled).unwrap();
+    fs::create_dir_all(&user).unwrap();
+    let model_path = bundled.join("coral-mini.gguf");
+    write_dummy_gguf(&model_path, b"GGUF", 1024 * 1024);
+
+    let inner_life = crate::prompt::InnerLifePromptContext {
+        persona_bio: Some(shared_types::PersonaBio {
+            character_id: shared_types::CharacterId::Coral,
+            display_name: "Coral · คอรัล".to_string(),
+            traits: "gentle, observant, warm".to_string(),
+            self_reflection: "Loves quiet evening chats.".to_string(),
+            favorite_topics: "tea, stargazing".to_string(),
+            updated_at: 1000,
+        }),
+        user_profile: Some(shared_types::UserProfile {
+            display_name: "Goshi".to_string(),
+            timezone: "Asia/Bangkok".to_string(),
+            location: "Bangkok".to_string(),
+            notes: "Prefers cozy late-night coding talks".to_string(),
+            updated_at: 1000,
+        }),
+        emotion_profile: Some(shared_types::EmotionProfileState {
+            character_id: shared_types::CharacterId::Coral,
+            dominant: EmotionTag::Empathetic,
+            dominant_intensity: 0.72,
+            emotions: vec![shared_types::EmotionDecayEntry {
+                tag: EmotionTag::Empathetic,
+                intensity: 0.72,
+                baseline: 0.30,
+                half_life_minutes: 30.0,
+                updated_at_ms: 1000,
+            }],
+            computed_at_ms: 1000,
+        }),
+        recent_diary: Some(shared_types::DiaryEntry {
+            id: "d1".to_string(),
+            character_id: shared_types::CharacterId::Coral,
+            entry_date: "2026-11-24".to_string(),
+            title: "Starry Night".to_string(),
+            content: "Discussed favorite books.".to_string(),
+            mood: EmotionTag::Empathetic,
+            source: "inner-loop".to_string(),
+            merged_count: 1,
+            created_at: 1000,
+            updated_at: 1000,
+        }),
+        current_time_summary: Some("2026-11-24 21:30 +07 (Tuesday, late_night)".to_string()),
+        enabled_actions: vec!["get_current_time".to_string(), "write_diary".to_string()],
+    };
+
+    let enriched = crate::prompt::build_soul_system_prompt_enriched(
+        "Hello Coral",
+        &MemoryRetrievalContext::default(),
+        LanguagePref::English,
+        CharacterPersona::Coral,
+        &inner_life,
+    );
+    assert!(enriched.contains("Self-Bio (Coral · คอรัล):"));
+    assert!(enriched.contains("User Profile:"));
+    assert!(enriched.contains("Goshi"));
+    assert!(enriched.contains("Current Decayed Emotion Baseline: dominant=empathetic (0.72)"));
+    assert!(enriched.contains("Starry Night"));
+    assert!(enriched.contains("Current Local Time: 2026-11-24 21:30"));
+    assert!(enriched.contains("Optional Companion Actions"));
+    assert!(enriched.contains("write_diary"));
+
+    // Single message chain strips <think>, [emotion: ...], AND split [action: ...] from streamed chunks & reply!
+    let backend = Arc::new(MockBackend::new(vec![
+        "<think>plan</think>[emotion: empathetic, intensity: 0.90] ",
+        "I am right here with you. ",
+        "[act",
+        "ion: write_diary, {\"title\": \"Late Talk\", \"content\": \"Checked in together\", \"mood\": \"empathetic\"}] ",
+        "Take a deep breath.",
+    ]));
+    let manager = LlmBrainManager::with_components(
+        bundled,
+        user,
+        Arc::new(MockRamProbe::new(16_384, 9_000, 300)),
+        backend,
+    );
+    let model = manager.scan_models().unwrap().pop().unwrap();
+    manager.load_model(&model).await.unwrap();
+
+    let streamed = Arc::new(StdMutex::new(Vec::<String>::new()));
+    let final_chunk_text = Arc::new(StdMutex::new(String::new()));
+    let s_clone = Arc::clone(&streamed);
+    let f_clone = Arc::clone(&final_chunk_text);
+
+    let (reply, invocations) = manager
+        .generate_reply_with_inner_life(
+            "I feel tired tonight",
+            &[],
+            &MemoryRetrievalContext::default(),
+            LanguagePref::English,
+            &inner_life,
+            Box::new(|_| {}),
+            Box::new(move |chunk| {
+                if chunk.is_final {
+                    *f_clone.lock().unwrap() = chunk.full_text;
+                } else {
+                    s_clone.lock().unwrap().push(chunk.text);
+                }
+            }),
+        )
+        .await
+        .expect("inner-life generation");
+
+    let combined_stream = streamed.lock().unwrap().concat();
+    assert!(!combined_stream.contains("[action:"));
+    assert!(!combined_stream.contains("[emotion:"));
+    assert!(!combined_stream.contains("<think>"));
+    assert_eq!(combined_stream, "I am right here with you. Take a deep breath.");
+    assert_eq!(*final_chunk_text.lock().unwrap(), "I am right here with you. Take a deep breath.");
+    assert_eq!(reply.turn.content, "I am right here with you. Take a deep breath.");
+    assert_eq!(reply.emotion.tag, EmotionTag::Empathetic);
+    assert_eq!(invocations.len(), 1);
+    assert_eq!(invocations[0].action, "write_diary");
+    assert_eq!(invocations[0].params["title"], "Late Talk");
 }

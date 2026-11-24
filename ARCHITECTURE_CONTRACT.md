@@ -1,4 +1,4 @@
-# SoulMate2D — Architecture & Phase 2 Contract
+# Coral&Kai Companion — Architecture & Phase 2 Contract
 
 ## 1. Environment & Toolchain Setup
 
@@ -148,7 +148,7 @@ soulmate2d/
 │   ├── brain-llm/                  # llama.cpp Metal + hot-swap + RAM guard
 │   └── voice-io/                   # cpal + VAD + Whisper ASR + TTS visemes
 ├── src-tauri/
-│   ├── tauri.conf.json             # productName SoulMate2D, transparent macOSPrivateApi
+│   ├── tauri.conf.json             # productName Coral&Kai Companion (com.coralkai.companion), transparent macOSPrivateApi
 │   ├── capabilities/default.json   # window + dialog permissions
 │   ├── Info.plist                  # NSMicrophoneUsageDescription
 │   ├── entitlements.plist          # com.apple.security.device.audio-input

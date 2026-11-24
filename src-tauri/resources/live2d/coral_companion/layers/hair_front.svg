@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Curved top ahoge -->
+  <path d="M 404 186 C 414 150, 396 126, 366 130 C 384 140, 392 162, 390 186 Z"
+        fill="#315A70" stroke="#503F3C" stroke-width="4.2" stroke-linejoin="round"/>
+
+  <!-- Left & Right long wavy side locks draping smoothly in front of shoulders -->
+  <path d="M 274 280
+           C 252 350, 244 442, 256 538
+           C 264 604, 260 678, 238 748
+           C 226 786, 238 822, 268 828
+           C 258 792, 264 748, 282 696
+           C 298 640, 298 570, 288 502
+           C 280 438, 284 366, 298 300 Z"
+        fill="#315A70" stroke="#503F3C" stroke-width="4.2" stroke-linejoin="round"/>
+
+  <path d="M 526 280
+           C 548 350, 556 442, 544 538
+           C 536 604, 540 678, 562 748
+           C 574 786, 562 822, 532 828
+           C 542 792, 536 748, 518 696
+           C 502 640, 502 570, 512 502
+           C 520 438, 516 366, 502 300 Z"
+        fill="#315A70" stroke="#503F3C" stroke-width="4.2" stroke-linejoin="round"/>
+
+  <!-- Top crown & swept parted bangs matching Coral reference -->
+  <path d="M 400 176
+           C 306 176, 246 234, 242 332
+           C 264 334, 282 320, 296 296
+           C 292 316, 292 330, 298 342
+           C 316 322, 334 294, 344 266
+           C 346 300, 360 326, 386 338
+           C 386 312, 388 286, 396 264
+           C 402 296, 420 324, 446 334
+           C 442 308, 444 282, 452 260
+           C 464 292, 480 318, 502 338
+           C 510 318, 514 298, 514 280
+           C 528 304, 542 324, 556 336
+           C 554 234, 494 176, 400 176 Z"
+        fill="#315A70" stroke="#503F3C" stroke-width="4.4" stroke-linejoin="round"/>
+
+  <!-- Subtle hair-parting & lock crease lines -->
+  <path d="M 358 212 C 350 236, 345 256, 344 274" fill="none" stroke="#503F3C" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M 442 214 C 448 236, 452 252, 452 264" fill="none" stroke="#503F3C" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M 268 522 C 278 582, 276 646, 262 712" fill="none" stroke="#234354" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 532 522 C 522 582, 524 646, 538 712" fill="none" stroke="#234354" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+</svg>

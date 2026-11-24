@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <defs>
+    <linearGradient id="cir_grad" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#1E3A49"/>
+      <stop offset="45%" stop-color="#315A70"/>
+      <stop offset="85%" stop-color="#588B9E"/>
+      <stop offset="100%" stop-color="#7EB2BF"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <ellipse cx="459" cy="354" rx="18" ry="21.5" fill="url(#cir_grad)" stroke="#233E4C" stroke-width="2.0"/>
+    <ellipse cx="459" cy="355" rx="7.6" ry="9.4" fill="#1C3340"/>
+    <path d="M 443 346 C 447 333, 471 333, 475 346 C 468 341, 450 341, 443 346 Z"
+          fill="#1B323E" opacity="0.48"/>
+    <ellipse cx="451.5" cy="344" rx="5.4" ry="6.2" fill="#FFFFFF" opacity="0.98"/>
+    <circle cx="466.5" cy="363" r="2.6" fill="#FFFFFF" opacity="0.9"/>
+  </g>
+</svg>

@@ -126,6 +126,31 @@ fn find_whisper_bridge_dylib(bundled_asr_dir: Option<&Path>) -> Option<PathBuf> 
         "libwhisper_bridge.so"
     };
 
+    // Check bundled runtime locations first (`src-tauri/resources/runtime/`, `resources/runtime/`,
+    // and `../Resources/resources/runtime/` relative to the executable).
+    for candidate in [
+        PathBuf::from("src-tauri/resources/runtime").join(dylib_name),
+        PathBuf::from("resources/runtime").join(dylib_name),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../src-tauri/resources/runtime")
+            .join(dylib_name),
+    ] {
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(exe_dir) = exe.parent()
+    {
+        let runtime_rel = exe_dir
+            .join("../Resources/resources/runtime")
+            .join(dylib_name);
+        if runtime_rel.is_file() {
+            return Some(runtime_rel);
+        }
+    }
+
     if let Some(dir) = bundled_asr_dir {
         let candidate = dir.join(dylib_name);
         if candidate.is_file() {
@@ -352,6 +377,40 @@ impl AsrManager {
             custom.push(info.clone());
         }
         Ok(info)
+    }
+
+    /// Restore persisted custom `.bin` Whisper ASR entries by validating existence and GGML
+    /// magic headers without loading them into Metal memory. Missing or invalid entries are skipped.
+    pub fn restore_custom_models(&self, entries: &[(PathBuf, Option<String>)]) -> Vec<ModelInfo> {
+        let mut restored = Vec::new();
+        for (path, name) in entries {
+            if let Ok(info) = self.register_custom_model(path, name.as_deref()) {
+                restored.push(info);
+            }
+        }
+        restored
+    }
+
+    /// Remove a custom ASR model entry by `id` or `path`.
+    pub fn remove_custom_model(&self, model_id_or_path: &str) -> SoulResult<bool> {
+        let mut custom = self
+            .custom_models
+            .lock()
+            .map_err(|_| SoulError::Internal("custom_models mutex poisoned".into()))?;
+        let target_canon = std::fs::canonicalize(model_id_or_path).ok();
+        let before = custom.len();
+        custom.retain(|m| {
+            if m.id == model_id_or_path || m.path == model_id_or_path {
+                return false;
+            }
+            if let Some(ref tc) = target_canon
+                && std::fs::canonicalize(&m.path).ok().as_ref() == Some(tc)
+            {
+                return false;
+            }
+            true
+        });
+        Ok(custom.len() < before)
     }
 
     /// Hot-swap the active Metal Whisper ASR model, strictly dropping any prior context first so
@@ -739,6 +798,6 @@ fn discover_default_bundled_asr_dir() -> Option<PathBuf> {
 fn discover_default_user_asr_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| {
         PathBuf::from(home)
-            .join("Library/Application Support/com.soulmate2d.app/models/asr")
+            .join("Library/Application Support/com.coralkai.companion/models/asr")
     })
 }

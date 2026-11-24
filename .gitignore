@@ -2,25 +2,34 @@
 target/
 **/target/
 node_modules/
+dist/
 ui/dist/
+*.app
+*.dmg
+*.dylib
 Cargo.lock
 src-tauri/gen/
 
-# OS junk
-.DS_Store
-
-# Runtime SQLite databases
+# AI model weights & personal databases
+*.gguf
+*.onnx
+*.bin
+*.safetensors
+*.pt
 *.sqlite
-*.sqlite-wal
-*.sqlite-shm
+*.sqlite-*
+profiles/
+models_config.json
+mcp_servers.json
 
-# Large downloaded model binaries (keep manifests, tokenizer/config JSON, and .gitkeep tracked)
-src-tauri/resources/models/**/*.gguf
-src-tauri/resources/models/**/*.bin
-src-tauri/resources/models/**/*.onnx
-*.dylib
+# macOS system, secrets, and temporary files
+.DS_Store
+.env
+.env.local
+.env.*.local
+
+# Keep tracked repository assets & placeholders
 !src-tauri/resources/models/**/.gitkeep
-!src-tauri/resources/models/**/manifest.json
-!src-tauri/resources/models/**/*.json
+!src-tauri/resources/runtime/.gitkeep
 !scripts/**
 !src-tauri/resources/live2d/**

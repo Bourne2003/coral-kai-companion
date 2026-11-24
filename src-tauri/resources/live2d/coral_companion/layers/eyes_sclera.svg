@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <defs>
+    <linearGradient id="es_shade" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#E8EAEE"/>
+      <stop offset="35%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FFFFFF"/>
+    </linearGradient>
+  </defs>
+  <!-- Left Sclera -->
+  <path d="M 310 354 C 314 333, 333 327, 349 329 C 364 331, 369 343, 368 357 C 367 372, 355 380, 339 380 C 322 380, 310 370, 310 354 Z"
+        fill="url(#es_shade)"/>
+  <!-- Right Sclera -->
+  <path d="M 490 354 C 486 333, 467 327, 451 329 C 436 331, 431 343, 432 357 C 433 372, 445 380, 461 380 C 478 380, 490 370, 490 354 Z"
+        fill="url(#es_shade)"/>
+</svg>

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SoulMate2D",
+  "productName": "Coral&Kai Companion",
   "version": "0.1.0",
-  "identifier": "com.soulmate2d.app",
+  "identifier": "com.coralkai.companion",
   "build": {
     "beforeDevCommand": "npm run dev --prefix ../ui",
     "devUrl": "http://localhost:5173",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "SoulMate2D",
+        "title": "Coral&Kai Companion",
         "width": 440,
         "height": 680,
         "transparent": true,
@@ -39,7 +39,8 @@
       "icons/icon.png"
     ],
     "resources": [
-      "resources/**/*"
+      "resources/live2d/**/*",
+      "resources/runtime/**/*"
     ],
     "macOS": {
       "minimumSystemVersion": "13.0",

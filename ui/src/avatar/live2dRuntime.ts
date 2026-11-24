@@ -1,6 +1,6 @@
-import type { EmotionTag } from "../types/ipc";
+import type { AvatarLogicalState, CharacterId, EmotionTag } from "../types/ipc";
 import { resolveAssetUrl, type Live2dFolderFiles } from "../api/tauriClient";
-import { MinaProceduralRenderer } from "./minaRenderer";
+import { CompanionProceduralRenderer } from "./companionRenderer";
 import type { CubismParams } from "./types";
 
 export interface CubismModel3Json {
@@ -158,14 +158,16 @@ const DEFAULT_IDLE_MOTION: CubismMotion3Json = {
   ],
 };
 
-function buildDefaultCompanionBundle(): LoadedLive2dModel {
+function buildDefaultCompanionBundle(character: CharacterId = "coral"): LoadedLive2dModel {
   const expressions = new Map<string, CubismExp3Json>();
   for (const [k, v] of Object.entries(DEFAULT_EXP3_PRESETS)) {
     expressions.set(k, v);
   }
+  const bundleId = character === "kai" ? "kai_companion" : "coral_companion";
+  const displayName = character === "kai" ? "Kai · ไค" : "Coral · คอรัล";
   return {
-    id: "default_companion",
-    name: "Mina (มีนา) — Cubism .model3.json",
+    id: bundleId,
+    name: `${displayName} — Cubism .model3.json`,
     model3: {
       Version: 3,
       FileReferences: {
@@ -186,8 +188,8 @@ function buildDefaultCompanionBundle(): LoadedLive2dModel {
       ],
     },
     manifest: {
-      id: "default_companion",
-      name: "Mina (มีนา)",
+      id: bundleId,
+      name: displayName,
       version: "1.0.0",
       recommendedRamMb: 42,
     },
@@ -196,7 +198,7 @@ function buildDefaultCompanionBundle(): LoadedLive2dModel {
     textures: [],
     layers: new Map(),
     objectUrls: [],
-    sourceLabel: "Bundled default_companion",
+    sourceLabel: `Bundled ${bundleId}`,
   };
 }
 
@@ -298,8 +300,9 @@ function findFileBySuffix(files: Map<string, File>, targetPath: string): File | 
  * and graceful procedural synthesis when `.moc3` binary isn't natively decomposed.
  */
 export class Live2dCubismRuntime {
-  private bundle: LoadedLive2dModel = buildDefaultCompanionBundle();
-  private readonly fallbackRenderer = new MinaProceduralRenderer();
+  private character: CharacterId = "coral";
+  private bundle: LoadedLive2dModel = buildDefaultCompanionBundle("coral");
+  private readonly fallbackRenderer = new CompanionProceduralRenderer();
   private readonly evaluatedParams: CubismParams = {
     ParamAngleX: 0,
     ParamAngleY: 0,
@@ -350,13 +353,20 @@ export class Live2dCubismRuntime {
     };
   }
 
+  setCharacter(character: CharacterId): void {
+    this.character = character;
+    this.fallbackRenderer.setCharacter(character);
+  }
+
   getEvaluatedParams(): CubismParams {
     return this.evaluatedParams;
   }
 
-  resetToBundledDefault(): void {
+  resetToBundledDefault(character: CharacterId = this.character): void {
     this.disposeObjectUrls();
-    this.bundle = buildDefaultCompanionBundle();
+    this.character = character;
+    this.fallbackRenderer.setCharacter(character);
+    this.bundle = buildDefaultCompanionBundle(character);
   }
 
   private disposeObjectUrls(): void {
@@ -524,9 +534,15 @@ export class Live2dCubismRuntime {
     );
 
     const folderLabel = cleanBase.split("/").filter(Boolean).pop() || "Live2D";
+    const resolvedId = opts?.id || manifest?.id || folderLabel;
+    if (resolvedId === "kai_companion") {
+      this.setCharacter("kai");
+    } else if (resolvedId === "coral_companion") {
+      this.setCharacter("coral");
+    }
     this.disposeObjectUrls();
     this.bundle = {
-      id: opts?.id || manifest?.id || folderLabel,
+      id: resolvedId,
       name: opts?.name || manifest?.displayName || manifest?.name || folderLabel,
       model3,
       manifest,
@@ -593,17 +609,28 @@ export class Live2dCubismRuntime {
     baseParams: CubismParams,
     emotion: EmotionTag,
     nowMs: number,
-    petMode: boolean
+    petMode: boolean,
+    logicalState: AvatarLogicalState = "idle"
   ): void {
     const params = this.computeCubismParams(baseParams, emotion, nowMs);
 
     if (this.bundle.layers.size >= 4) {
-      this.renderSvgLayers(ctx, width, height, params, petMode);
+      this.renderSvgLayers(ctx, width, height, params, petMode, nowMs, logicalState);
       return;
     }
 
     // Render full procedural rig driven by evaluated Cubism parameters
-    this.fallbackRenderer.render(ctx, width, height, params, emotion, nowMs, petMode);
+    this.fallbackRenderer.render(
+      ctx,
+      width,
+      height,
+      params,
+      emotion,
+      nowMs,
+      petMode,
+      undefined,
+      logicalState
+    );
 
     // If user loaded a custom .model3.json with texture_00.png, show miniature atlas card in stage corner
     if (this.bundle.textures.length > 0 && !petMode) {
@@ -636,7 +663,9 @@ export class Live2dCubismRuntime {
     width: number,
     height: number,
     params: CubismParams,
-    petMode: boolean
+    petMode: boolean,
+    nowMs = performance.now(),
+    logicalState: AvatarLogicalState = "idle"
   ): void {
     ctx.clearRect(0, 0, width, height);
     const layers = this.bundle.layers;
@@ -711,6 +740,26 @@ export class Live2dCubismRuntime {
 
     drawLayer(layers.get("hair_front"), params.ParamHairFront * 8, 0);
     drawLayer(layers.get("accessories"), params.ParamAccessorySway * 5, 0);
+
+    if (logicalState === "sleep") {
+      const tSec = nowMs / 1000;
+      const letters = ["z", "Z", "z"];
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (let i = 0; i < 3; i += 1) {
+        const cycle = (tSec * 0.36 + i * 0.33) % 1;
+        const x = 92 + cycle * 42 + Math.sin(tSec * 1.4 + i * 1.5) * 6;
+        const y = -112 - cycle * 64;
+        const alpha = Math.sin(cycle * Math.PI) * 0.78;
+        const size = 14 + i * 3 + cycle * 5;
+        ctx.globalAlpha = Math.max(0, Math.min(0.82, alpha));
+        ctx.font = `700 ${Math.round(size)}px "SF Pro Rounded", -apple-system, sans-serif`;
+        ctx.fillStyle = "#5B8499";
+        ctx.fillText(letters[i], x, y);
+      }
+      ctx.restore();
+    }
 
     ctx.restore();
     ctx.restore();

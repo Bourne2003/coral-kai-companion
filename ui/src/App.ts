@@ -11,10 +11,14 @@ import { ICONS } from "./components/icons";
 import { MemoryDrawer } from "./components/MemoryDrawer";
 import { ModelDrawer } from "./components/ModelDrawer";
 import type {
+  AvatarLogicalState,
+  AvatarSnapshot,
+  CharacterId,
   ChatTurn,
   EmotionState,
   EmotionTag,
   LanguagePref,
+  ProactiveMessageEvent,
   RelationshipState,
   SystemRamStatus,
   VoiceMode,
@@ -26,6 +30,64 @@ interface ToastItem {
   kind: "info" | "error";
 }
 
+interface CharacterPersonaMeta {
+  id: CharacterId;
+  displayLabel: string;
+  shortEn: string;
+  shortTh: string;
+  polite: string;
+  politeQ: string;
+  politeSoft: string;
+  greetingTh: string;
+}
+
+const CHARACTER_STORAGE_KEY = "coralkai.character";
+const LEGACY_CHARACTER_STORAGE_KEY = "soulmate2d.character";
+
+const PERSONAS: Record<CharacterId, CharacterPersonaMeta> = {
+  coral: {
+    id: "coral",
+    displayLabel: "Coral · คอรัล",
+    shortEn: "Coral",
+    shortTh: "คอรัล",
+    polite: "ค่ะ",
+    politeQ: "คะ",
+    politeSoft: "นะคะ",
+    greetingTh:
+      "สวัสดีค่ะ! คอรัลอยู่เป็นเพื่อนตรงนี้เสมอนะ พิมพ์หรือกดไมค์คุยกันได้เลยค่ะ",
+  },
+  kai: {
+    id: "kai",
+    displayLabel: "Kai · ไค",
+    shortEn: "Kai",
+    shortTh: "ไค",
+    polite: "ครับ",
+    politeQ: "ครับ",
+    politeSoft: "นะครับ",
+    greetingTh:
+      "สวัสดีครับ! ไคอยู่เป็นเพื่อนตรงนี้เสมอนะ พิมพ์หรือกดไมค์คุยกันได้เลยครับ",
+  },
+};
+
+function loadSavedCharacter(): CharacterId {
+  try {
+    const saved =
+      window.localStorage.getItem(CHARACTER_STORAGE_KEY) ??
+      window.localStorage.getItem(LEGACY_CHARACTER_STORAGE_KEY);
+    return saved === "kai" ? "kai" : "coral";
+  } catch {
+    return "coral";
+  }
+}
+
+function saveCharacter(character: CharacterId): void {
+  try {
+    window.localStorage.setItem(CHARACTER_STORAGE_KEY, character);
+  } catch {
+    // ignore storage errors in restricted contexts
+  }
+}
+
 export class SoulMateApp {
   private readonly mountEl: HTMLElement;
   private stage!: AvatarStage;
@@ -33,9 +95,11 @@ export class SoulMateApp {
   private memoryDrawer!: MemoryDrawer;
 
   private unlisteners: Array<() => void> = [];
+  private activeCharacter: CharacterId = loadSavedCharacter();
+
   private currentEmotion: EmotionState = {
     tag: "joy",
-    intensity: 0.72,
+    intensity: 0.76,
     reason: "Ready to greet you",
     timestampMs: Date.now(),
   };
@@ -65,21 +129,24 @@ export class SoulMateApp {
   private startedOnPointerDown = false;
   private ignoreNextClick = false;
 
-  private subtitleText =
-    "สวัสดีค่ะ! มีนาอยู่เป็นเพื่อนตรงนี้เสมอนะ พิมพ์หรือกดไมค์คุยกันได้เลยค่ะ";
+  private subtitleText = PERSONAS[this.activeCharacter].greetingTh;
   private transcriptPreview = "";
   private chatLog: ChatTurn[] = [];
   private testerIntensity = 0.88;
+  private logicalState: AvatarLogicalState = "idle";
   private toastCounter = 0;
 
   // Key DOM refs
   private canvasEl!: HTMLCanvasElement;
   private topRamLabelEl!: HTMLElement;
   private topEngineBadgeEl!: HTMLElement;
+  private charBtns: Map<CharacterId, HTMLButtonElement> = new Map();
+  private byomBannerEl!: HTMLElement;
   private bondFillEl!: HTMLElement;
   private bondPctEl!: HTMLElement;
   private bondPopoverEl!: HTMLElement;
   private testerBarEl!: HTMLElement;
+  private testerStateStatusEl!: HTMLElement;
   private subtitleEmotionEl!: HTMLElement;
   private subtitleTextEl!: HTMLElement;
   private transcriptLineEl!: HTMLElement;
@@ -94,14 +161,19 @@ export class SoulMateApp {
   private voiceBtns: Map<VoiceMode, HTMLButtonElement> = new Map();
   private langBtns: Map<LanguagePref, HTMLButtonElement> = new Map();
   private emotionChipBtns: Map<EmotionTag, HTMLButtonElement> = new Map();
+  private stateChipBtns: Map<AvatarLogicalState, HTMLButtonElement> = new Map();
 
   constructor(mountEl: HTMLElement) {
     this.mountEl = mountEl;
   }
 
+  private get persona(): CharacterPersonaMeta {
+    return PERSONAS[this.activeCharacter];
+  }
+
   async init(): Promise<void> {
     this.buildShell();
-    this.stage = new AvatarStage(this.canvasEl);
+    this.stage = new AvatarStage(this.canvasEl, this.activeCharacter);
     this.stage.setEmotion(this.currentEmotion);
 
     await this.subscribeEvents();
@@ -128,12 +200,10 @@ export class SoulMateApp {
     const shell = document.createElement("div");
     shell.className = "app-shell";
 
-    // Ambient soft stage background (transparent in pet mode)
     const backdrop = document.createElement("div");
     backdrop.className = "stage-backdrop";
     shell.appendChild(backdrop);
 
-    // Full-bleed character stage + drag region
     const stageArea = document.createElement("main");
     stageArea.className = "stage-area";
 
@@ -149,11 +219,9 @@ export class SoulMateApp {
 
     shell.appendChild(stageArea);
 
-    // Top Floating Overlay Bar
     const topBar = this.buildTopBar();
     shell.appendChild(topBar);
 
-    // Popovers & Tester Strip
     this.bondPopoverEl = this.buildBondPopover();
     shell.appendChild(this.bondPopoverEl);
 
@@ -163,18 +231,18 @@ export class SoulMateApp {
     this.historyPopoverEl = this.buildHistoryPopover();
     shell.appendChild(this.historyPopoverEl);
 
-    // Subtitle Bubble + Bottom Control Dock
     const bottomOverlay = document.createElement("section");
     bottomOverlay.className = "bottom-overlay";
-    bottomOverlay.append(this.buildSubtitleCard(), this.buildDock());
+    this.byomBannerEl = this.buildByomBanner();
+    bottomOverlay.append(this.byomBannerEl, this.buildSubtitleCard(), this.buildDock());
     shell.appendChild(bottomOverlay);
 
-    // Drawers
     this.modelDrawer = new ModelDrawer({
       onClose: () => this.modelDrawer.close(),
       onRamUpdated: (ram) => {
         this.ramStatus = ram;
         this.syncTopRamLabel();
+        this.syncByomBanner();
       },
       onEngineModeChange: (mode) => {
         this.stage.setEngineMode(mode);
@@ -192,16 +260,21 @@ export class SoulMateApp {
             : model.path;
           await invokeCommand("load_live2d_folder", { folderPath });
         }
+        if (model.id === "kai_companion") {
+          await this.handleCharacterChange("kai", false);
+        } else if (model.id === "coral_companion") {
+          await this.handleCharacterChange("coral", false);
+        }
         const res = await this.stage.loadLive2dModelInfo(model, true);
         this.syncEngineBadge();
         this.showToast(`Activated Live2D "${res.name}" (${res.expressionCount} expressions)`);
       },
       onLive2dDefaultSelected: () => {
-        void this.stage.loadDefaultLive2dAsset(true).then(() => {
+        void this.stage.loadCompanionLive2dAsset(this.activeCharacter, true).then(() => {
           this.syncEngineBadge();
         });
       },
-      getEngineMode: () => this.stage?.getEngineMode() ?? "mina",
+      getEngineMode: () => this.stage?.getEngineMode() ?? "vector",
       getLive2dSummary: () => this.stage.getLive2dInfo(),
       onToast: (msg, kind) => this.showToast(msg, kind),
     });
@@ -213,6 +286,8 @@ export class SoulMateApp {
         this.syncBondMeter();
       },
       onToast: (msg, kind) => this.showToast(msg, kind),
+      getCompanionName: () => this.persona.shortEn,
+      getCharacterId: () => this.activeCharacter,
     });
 
     shell.append(this.modelDrawer.root, this.memoryDrawer.root);
@@ -229,26 +304,40 @@ export class SoulMateApp {
     bar.className = "top-bar";
     bar.setAttribute("data-tauri-drag-region", "");
 
-    // Left: Companion identity + engine badge
+    // Left: Character Switcher segmented pill + engine badge
     const brand = document.createElement("div");
     brand.className = "brand-pill";
     brand.setAttribute("data-tauri-drag-region", "");
 
-    const nameSpan = document.createElement("span");
-    nameSpan.className = "brand-name";
-    nameSpan.textContent = "Mina · มีนา";
+    const charSwitcher = document.createElement("div");
+    charSwitcher.className = "char-switcher";
+    charSwitcher.setAttribute("role", "group");
+    charSwitcher.setAttribute("aria-label", "Companion Character");
+
+    const charOpts: Array<{ id: CharacterId; label: string }> = [
+      { id: "coral", label: PERSONAS.coral.displayLabel },
+      { id: "kai", label: PERSONAS.kai.displayLabel },
+    ];
+    for (const opt of charOpts) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "char-seg-btn";
+      btn.textContent = opt.label;
+      btn.addEventListener("click", () => void this.handleCharacterChange(opt.id, true));
+      this.charBtns.set(opt.id, btn);
+      charSwitcher.appendChild(btn);
+    }
 
     this.topEngineBadgeEl = document.createElement("span");
     this.topEngineBadgeEl.className = "brand-sub";
-    this.topEngineBadgeEl.textContent = isTauriRuntime() ? "Mina 60fps" : "Preview";
+    this.topEngineBadgeEl.textContent = isTauriRuntime() ? "Vector 60fps" : "Preview";
 
-    brand.append(nameSpan, this.topEngineBadgeEl);
+    brand.append(charSwitcher, this.topEngineBadgeEl);
 
     // Right: Bond meter, Tester, Pet Mode, Models, Diary
     const actions = document.createElement("div");
     actions.className = "top-actions";
 
-    // Bond & Mood Heart Meter Button
     const bondBtn = document.createElement("button");
     bondBtn.type = "button";
     bondBtn.className = "pill-btn bond-btn";
@@ -270,7 +359,6 @@ export class SoulMateApp {
       this.syncPopovers();
     });
 
-    // Expression & Lip-Sync Tester Toggle
     this.testerBtnEl = document.createElement("button");
     this.testerBtnEl.type = "button";
     this.testerBtnEl.className = "icon-btn";
@@ -282,7 +370,6 @@ export class SoulMateApp {
       this.syncPopovers();
     });
 
-    // Desktop Pet Mode Toggle
     this.petBtnEl = document.createElement("button");
     this.petBtnEl.type = "button";
     this.petBtnEl.className = "icon-btn";
@@ -290,7 +377,6 @@ export class SoulMateApp {
     this.petBtnEl.innerHTML = ICONS.pet;
     this.petBtnEl.addEventListener("click", () => void this.togglePetMode());
 
-    // Models Drawer Button
     const modelBtn = document.createElement("button");
     modelBtn.type = "button";
     modelBtn.className = "pill-btn";
@@ -306,7 +392,6 @@ export class SoulMateApp {
       else this.modelDrawer.open();
     });
 
-    // Soul Diary Drawer Button
     const diaryBtn = document.createElement("button");
     diaryBtn.type = "button";
     diaryBtn.className = "icon-btn";
@@ -321,6 +406,28 @@ export class SoulMateApp {
     actions.append(bondBtn, this.testerBtnEl, this.petBtnEl, modelBtn, diaryBtn);
     bar.append(brand, actions);
     return bar;
+  }
+
+  private buildByomBanner(): HTMLElement {
+    const banner = document.createElement("div");
+    banner.className = "byom-banner hidden";
+
+    const msg = document.createElement("div");
+    msg.className = "byom-banner-text";
+    msg.textContent =
+      "ยังไม่ได้นำเข้าโมเดล AI — กรุณาเลือกไฟล์โมเดล (.gguf / .bin) ในเมนู Models ก่อนเริ่มสนทนาหรือใช้เสียง";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-primary btn-xs byom-import-btn";
+    btn.textContent = "นำเข้าโมเดล";
+    btn.addEventListener("click", () => {
+      this.memoryDrawer.close();
+      this.modelDrawer.open();
+    });
+
+    banner.append(msg, btn);
+    return banner;
   }
 
   private buildBondPopover(): HTMLElement {
@@ -338,7 +445,11 @@ export class SoulMateApp {
 
     const title = document.createElement("span");
     title.className = "tester-title";
-    title.textContent = "Expression & Lip-Sync Tester";
+    title.textContent = "Expression & State Tester";
+
+    this.testerStateStatusEl = document.createElement("span");
+    this.testerStateStatusEl.className = "pill pill-soft";
+    this.testerStateStatusEl.textContent = "State: Wake (Idle)";
 
     const intensityWrap = document.createElement("label");
     intensityWrap.className = "intensity-wrap";
@@ -360,7 +471,25 @@ export class SoulMateApp {
       });
     });
     intensityWrap.append(intLabel, slider);
-    rowTop.append(title, intensityWrap);
+    rowTop.append(title, this.testerStateStatusEl, intensityWrap);
+
+    const stateChips = document.createElement("div");
+    stateChips.className = "emotion-chips";
+    const stateOpts: Array<{ state: AvatarLogicalState; label: string }> = [
+      { state: "idle", label: "Wake" },
+      { state: "think", label: "Think" },
+      { state: "write", label: "Write" },
+      { state: "sleep", label: "Sleep" },
+    ];
+    for (const opt of stateOpts) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "state-chip";
+      btn.textContent = opt.label;
+      btn.addEventListener("click", () => void this.handleSetLogicalState(opt.state));
+      this.stateChipBtns.set(opt.state, btn);
+      stateChips.appendChild(btn);
+    }
 
     const chips = document.createElement("div");
     chips.className = "emotion-chips";
@@ -395,26 +524,27 @@ export class SoulMateApp {
     ttsBtn.className = "btn-primary btn-xs";
     ttsBtn.textContent = "Test Voice & Lip-Sync";
     ttsBtn.addEventListener("click", () => {
+      const p = this.persona;
       const sample =
         this.languagePref === "english"
-          ? "Hello! My lips and expressions move smoothly in real time at sixty frames per second!"
-          : "สวัสดีค่ะ! ตอนนี้มีนากำลังทดสอบการขยับปากและสีหน้าแบบเรียลไทม์อยู่นะคะ";
+          ? `Hello! I'm ${p.shortEn}, and my lips and expressions move smoothly at sixty frames per second!`
+          : `สวัสดี${p.polite}! ตอนนี้${p.shortTh}กำลังทดสอบการขยับปากและสีหน้าแบบเรียลไทม์อยู่${p.politeSoft}`;
       void this.triggerSpeechPreview(sample, this.currentEmotion.tag);
     });
 
     const engineBtn = document.createElement("button");
     engineBtn.type = "button";
     engineBtn.className = "btn-secondary btn-xs";
-    engineBtn.textContent = "Switch Mina / Live2D";
+    engineBtn.textContent = "Switch Vector / Live2D";
     engineBtn.addEventListener("click", () => {
       const next: AvatarEngineMode =
-        this.stage.getEngineMode() === "mina" ? "live2d" : "mina";
+        this.stage.getEngineMode() === "vector" ? "live2d" : "vector";
       this.stage.setEngineMode(next);
       this.syncEngineBadge();
       this.showToast(
         next === "live2d"
           ? "Switched stage to Live2D .model3.json Cubism runtime"
-          : "Switched stage to Mina Procedural 60 FPS engine"
+          : "Switched stage to Vector 60 FPS procedural engine"
       );
     });
 
@@ -425,7 +555,7 @@ export class SoulMateApp {
     stopBtn.addEventListener("click", () => void this.handleStopSpeaking());
 
     rowActions.append(ttsBtn, engineBtn, stopBtn);
-    strip.append(rowTop, chips, rowActions);
+    strip.append(rowTop, stateChips, chips, rowActions);
     return strip;
   }
 
@@ -476,7 +606,6 @@ export class SoulMateApp {
     const dock = document.createElement("div");
     dock.className = "control-dock";
 
-    // Top control strip: Voice mode + Language selector + Stop speaking
     const metaRow = document.createElement("div");
     metaRow.className = "dock-meta-row";
 
@@ -523,7 +652,6 @@ export class SoulMateApp {
 
     metaRow.append(voiceSeg, langSeg, this.stopSpeakBtnEl);
 
-    // Input row: Mic button + Thai/English input + Send button
     const inputForm = document.createElement("form");
     inputForm.className = "chat-input-row";
     inputForm.addEventListener("submit", (e) => {
@@ -579,7 +707,7 @@ export class SoulMateApp {
     this.chatInputEl = document.createElement("input");
     this.chatInputEl.type = "text";
     this.chatInputEl.className = "chat-input";
-    this.chatInputEl.placeholder = "คุยกับมีนา... (Thai or English)";
+    this.chatInputEl.placeholder = `คุยกับ${this.persona.shortTh}... (Thai or English)`;
     this.chatInputEl.autocomplete = "off";
 
     this.sendBtnEl = document.createElement("button");
@@ -602,11 +730,20 @@ export class SoulMateApp {
       await listenEvent("avatar://emotion", (emotionState) => {
         this.applyEmotion(emotionState);
       }),
+      await listenEvent("avatar://state", (snapshot) => {
+        this.applyAvatarSnapshot(snapshot);
+      }),
       await listenEvent("avatar://viseme", (frame) => {
         this.stage.pushViseme(frame);
         if (frame.energy > 0.04 || frame.mouthOpenY > 0.06) {
           this.markSpeakingActive();
         }
+      }),
+      await listenEvent("companion://proactive", (evt) => {
+        this.handleProactiveMessage(evt);
+      }),
+      await listenEvent("companion://inner-loop", (status) => {
+        this.modelDrawer.updateInnerLoopStatus(status);
       }),
       await listenEvent("voice://transcript", (evt) => {
         this.transcriptPreview = evt.text;
@@ -629,6 +766,7 @@ export class SoulMateApp {
       await listenEvent("system://ram", (ram) => {
         this.ramStatus = ram;
         this.syncTopRamLabel();
+        this.syncByomBanner();
         this.modelDrawer.updateRam(ram);
       })
     );
@@ -636,26 +774,85 @@ export class SoulMateApp {
 
   private async hydrateInitialState(): Promise<void> {
     try {
-      const [ram, rel, live2dModels] = await Promise.all([
+      await invokeCommand("set_character_persona", {
+        character: this.activeCharacter,
+      }).catch(() => this.activeCharacter);
+
+      const [ram, rel, live2dModels, avatarState] = await Promise.all([
         invokeCommand("get_ram_status"),
         invokeCommand("get_relationship_state"),
         invokeCommand("list_live2d_models"),
+        invokeCommand("get_avatar_state").catch(() => null),
+        invokeCommand("get_emotion_profile").catch(() => null),
       ]);
       this.ramStatus = ram;
       this.relationship = rel;
       this.syncTopRamLabel();
+      this.syncByomBanner();
       this.syncBondMeter();
+      if (avatarState) {
+        this.applyAvatarSnapshot(avatarState);
+      }
 
+      const preferredId =
+        this.activeCharacter === "kai" ? "kai_companion" : "coral_companion";
       const activeLive2d =
-        live2dModels.find((m) => m.isActive) ?? live2dModels[0] ?? null;
+        live2dModels.find((m) => m.id === preferredId) ??
+        live2dModels.find((m) => m.isActive) ??
+        live2dModels[0] ??
+        null;
       if (activeLive2d) {
         void this.stage.loadLive2dModelInfo(activeLive2d, false);
       } else {
-        void this.stage.loadDefaultLive2dAsset(false);
+        void this.stage.loadCompanionLive2dAsset(this.activeCharacter, false);
       }
     } catch (err) {
-      void this.stage.loadDefaultLive2dAsset(false);
+      void this.stage.loadCompanionLive2dAsset(this.activeCharacter, false);
       this.showToast(formatSoulError(err), "error");
+    }
+  }
+
+  private async handleCharacterChange(
+    character: CharacterId,
+    notifyBackend = true
+  ): Promise<void> {
+    const prevGreeting = PERSONAS[this.activeCharacter].greetingTh;
+    this.activeCharacter = character;
+    saveCharacter(character);
+    this.stage.setCharacter(character);
+
+    if (this.chatLog.length === 0 || this.subtitleText === prevGreeting) {
+      this.subtitleText = this.persona.greetingTh;
+      this.subtitleTextEl.textContent = this.subtitleText;
+    }
+
+    this.syncCharacterState();
+
+    if (notifyBackend) {
+      try {
+        await invokeCommand("set_character_persona", { character });
+      } catch (err) {
+        this.showToast(formatSoulError(err), "error");
+      }
+    }
+
+    try {
+      const [rel, avatarState] = await Promise.all([
+        invokeCommand("get_relationship_state"),
+        invokeCommand("get_avatar_state").catch(() => null),
+        invokeCommand("get_emotion_profile").catch(() => null),
+      ]);
+      this.relationship = rel;
+      this.syncBondMeter();
+      if (avatarState) {
+        this.applyAvatarSnapshot(avatarState);
+      }
+    } catch {
+      // ignore non-fatal background refresh errors
+    }
+
+    if (this.memoryDrawer.isOpen()) {
+      void this.memoryDrawer.refresh();
     }
   }
 
@@ -676,11 +873,65 @@ export class SoulMateApp {
     this.currentEmotion = state;
     this.stage.setEmotion(state);
     this.syncEmotionPill();
+    this.syncTesterStateChips();
+  }
+
+  private applyAvatarSnapshot(snapshot: AvatarSnapshot): void {
+    this.stage.applyAvatarSnapshot(snapshot);
+    this.logicalState = snapshot.logicalState;
+    this.currentEmotion = snapshot.emotion;
+    this.syncEmotionPill();
+    this.syncTesterStateChips();
+  }
+
+  private handleProactiveMessage(evt: ProactiveMessageEvent): void {
+    if (evt.characterId && evt.characterId !== this.activeCharacter) {
+      return;
+    }
+    this.applyEmotion(evt.emotion);
+    this.subtitleText = evt.content;
+    this.subtitleTextEl.textContent = evt.content;
+    this.chatLog.push({
+      id: `proactive-${evt.timestampMs}`,
+      role: "assistant",
+      content: evt.content,
+      emotion: evt.emotion.tag,
+      timestampMs: evt.timestampMs,
+    });
+    if (this.historyOpen) {
+      this.syncHistoryPopover();
+    }
+    this.showToast(`${this.persona.shortEn}: ${evt.reason}`);
+  }
+
+  private async handleSetLogicalState(logicalState: AvatarLogicalState): Promise<void> {
+    try {
+      const snapshot = await invokeCommand("set_avatar_logical_state", {
+        logicalState,
+        emotion: this.currentEmotion.tag,
+        intensity: this.testerIntensity,
+      });
+      this.applyAvatarSnapshot(snapshot);
+    } catch (err) {
+      this.showToast(formatSoulError(err), "error");
+    }
   }
 
   private async handleSendChat(overrideMessage?: string): Promise<void> {
     const raw = (overrideMessage ?? this.chatInputEl.value).trim();
     if (!raw || this.isSending) return;
+
+    if (!this.ramStatus?.activeLlmId) {
+      const p = this.persona;
+      const missingLlmMsg = `ยังไม่ได้นำเข้าโมเดล LLM (.gguf) ${p.polite} — กรุณาเปิดเมนู Models เพื่อเลือกไฟล์ .gguf ก่อนเริ่มสนทนา${p.politeSoft} (No LLM loaded — import a .gguf file in Models first.)`;
+      this.subtitleText = missingLlmMsg;
+      this.subtitleTextEl.textContent = missingLlmMsg;
+      this.showToast(
+        `ยังไม่ได้เปิดใช้งานโมเดล LLM (.gguf) ${p.polite} — กรุณานำเข้าในเมนู Models`,
+        "error"
+      );
+      return;
+    }
 
     this.isSending = true;
     this.sendBtnEl.disabled = true;
@@ -705,7 +956,6 @@ export class SoulMateApp {
       this.chatLog.push(reply.turn);
       this.syncHistoryPopover();
 
-      // Refresh bond & memory state quietly
       const rel = await invokeCommand("get_relationship_state");
       this.relationship = rel;
       this.syncBondMeter();
@@ -714,6 +964,7 @@ export class SoulMateApp {
       }
     } catch (err) {
       const msg = formatSoulError(err);
+      this.subtitleText = msg;
       this.subtitleTextEl.textContent = msg;
       this.showToast(msg, "error");
     } finally {
@@ -771,6 +1022,17 @@ export class SoulMateApp {
       this.showToast("Mic is muted — switch to PTT or Hands-Free to speak.", "error");
       return;
     }
+    if (!this.ramStatus?.activeAsrId) {
+      const p = this.persona;
+      const missingAsrMsg = `ยังไม่ได้นำเข้าโมเดลเสียง Whisper (.bin) ${p.polite} — กรุณาเปิดเมนู Models เพื่อเลือกไฟล์ .bin ก่อนใช้งานไมโครโฟน${p.politeSoft} (No Whisper ASR model loaded — import a .bin file in Models first.)`;
+      this.subtitleText = missingAsrMsg;
+      this.subtitleTextEl.textContent = missingAsrMsg;
+      this.showToast(
+        `ยังไม่ได้นำเข้าโมเดลเสียง Whisper (.bin) ${p.polite} — กรุณานำเข้าในเมนู Models`,
+        "error"
+      );
+      return;
+    }
     try {
       this.isListening = true;
       this.syncMicState();
@@ -778,7 +1040,10 @@ export class SoulMateApp {
     } catch (err) {
       this.isListening = false;
       this.syncMicState();
-      this.showToast(formatSoulError(err), "error");
+      const msg = formatSoulError(err);
+      this.subtitleText = msg;
+      this.subtitleTextEl.textContent = msg;
+      this.showToast(msg, "error");
     }
   }
 
@@ -803,7 +1068,7 @@ export class SoulMateApp {
       this.petBtnEl.classList.toggle("active", this.petMode);
       this.showToast(
         this.petMode
-          ? "Desktop Pet Mode enabled — drag anywhere above Mina to move"
+          ? `Desktop Pet Mode enabled — drag anywhere above ${this.persona.shortEn} to move`
           : "Normal Studio Window restored"
       );
     } catch (err) {
@@ -812,9 +1077,12 @@ export class SoulMateApp {
   }
 
   private syncUiState(): void {
+    this.syncCharacterState();
     this.syncEmotionPill();
+    this.syncTesterStateChips();
     this.syncBondMeter();
     this.syncTopRamLabel();
+    this.syncByomBanner();
     this.syncEngineBadge();
     this.syncMicState();
     this.syncPopovers();
@@ -822,6 +1090,45 @@ export class SoulMateApp {
     for (const [pref, btn] of this.langBtns.entries()) {
       btn.classList.toggle("active", pref === this.languagePref);
     }
+  }
+
+  private syncTesterStateChips(): void {
+    for (const [st, btn] of this.stateChipBtns.entries()) {
+      btn.classList.toggle("active", st === this.logicalState);
+    }
+    if (!this.testerStateStatusEl) return;
+    const paused =
+      this.logicalState === "sleep" ||
+      this.stage?.isOcularMotionPaused?.() ||
+      false;
+    const labels: Record<AvatarLogicalState, string> = {
+      idle: "Wake (Idle)",
+      think: "Think",
+      write: "Write",
+      speak: "Speak",
+      sleep: "Sleep",
+    };
+    this.testerStateStatusEl.textContent = paused
+      ? `State: ${labels[this.logicalState]} · Blink & Gaze Paused`
+      : `State: ${labels[this.logicalState]}`;
+  }
+
+  private syncCharacterState(): void {
+    for (const [id, btn] of this.charBtns.entries()) {
+      btn.classList.toggle("active", id === this.activeCharacter);
+    }
+    if (this.chatInputEl) {
+      this.chatInputEl.placeholder = `คุยกับ${this.persona.shortTh}... (Thai or English)`;
+    }
+    if (this.historyOpen) {
+      this.syncHistoryPopover();
+    }
+  }
+
+  private syncByomBanner(): void {
+    if (!this.byomBannerEl) return;
+    const needsLlm = this.ramStatus !== null && this.ramStatus.activeLlmId === null;
+    this.byomBannerEl.classList.toggle("hidden", !needsLlm);
   }
 
   private syncEmotionPill(): void {
@@ -879,16 +1186,20 @@ export class SoulMateApp {
 
   private syncTopRamLabel(): void {
     if (!this.ramStatus) return;
+    if (this.ramStatus.activeLlmId === null && this.ramStatus.activeAsrId === null) {
+      this.topRamLabelEl.textContent = "Models";
+      return;
+    }
     const gb = (this.ramStatus.processRamMb / 1024).toFixed(1);
     this.topRamLabelEl.textContent = `${gb} GB`;
   }
 
   private syncEngineBadge(): void {
-    const mode = this.stage?.getEngineMode() ?? "mina";
+    const mode = this.stage?.getEngineMode() ?? "vector";
     if (mode === "live2d") {
       this.topEngineBadgeEl.textContent = "Cubism .model3";
     } else {
-      this.topEngineBadgeEl.textContent = isTauriRuntime() ? "Mina 60fps" : "Preview";
+      this.topEngineBadgeEl.textContent = isTauriRuntime() ? "Vector 60fps" : "Preview";
     }
   }
 
@@ -940,7 +1251,7 @@ export class SoulMateApp {
       item.className = `history-item ${turn.role}`;
       const who = document.createElement("span");
       who.className = "history-who";
-      who.textContent = turn.role === "user" ? "You" : "Mina";
+      who.textContent = turn.role === "user" ? "You" : this.persona.shortEn;
       const txt = document.createElement("span");
       txt.textContent = turn.content;
       item.append(who, txt);
@@ -953,7 +1264,6 @@ export class SoulMateApp {
     const id = ++this.toastCounter;
     const item: ToastItem = { id, message, kind };
 
-    // Keep toast stack lean (at most 1 active toast) so it never covers drawer content
     this.toastStackEl.innerHTML = "";
 
     const el = document.createElement("div");

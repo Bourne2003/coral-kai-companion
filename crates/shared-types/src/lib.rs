@@ -10,11 +10,14 @@ pub mod events {
     pub const CHAT_TOKEN: &str = "chat://token";
     pub const AVATAR_EMOTION: &str = "avatar://emotion";
     pub const AVATAR_VISEME: &str = "avatar://viseme";
+    pub const AVATAR_STATE: &str = "avatar://state";
     pub const VOICE_TRANSCRIPT: &str = "voice://transcript";
     pub const SYSTEM_RAM: &str = "system://ram";
+    pub const PROACTIVE_MESSAGE: &str = "companion://proactive";
+    pub const INNER_LOOP_STATUS: &str = "companion://inner-loop";
 }
 
-/// Unified error enum across SoulMate2D crates and Tauri IPC boundaries.
+/// Unified error enum across Coral&Kai Companion crates and Tauri IPC boundaries.
 #[derive(Debug, Clone, thiserror::Error, Serialize, Deserialize)]
 #[serde(tag = "type", content = "detail", rename_all = "camelCase")]
 pub enum SoulError {
@@ -62,7 +65,7 @@ impl From<serde_json::Error> for SoulError {
     }
 }
 
-/// Standard Result alias for SoulMate2D operations.
+/// Standard Result alias for Coral&Kai Companion operations.
 pub type SoulResult<T> = Result<T, SoulError>;
 
 /// High-level companion emotional state driven by conversation and memory.
@@ -276,7 +279,7 @@ pub struct MemoryRetrievalContext {
     pub relationship: RelationshipState,
 }
 
-/// Category of local model or asset managed by SoulMate2D.
+/// Category of local model or asset managed by Coral&Kai Companion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelKind {
@@ -371,6 +374,301 @@ pub struct TranscriptEvent {
     pub language: String,
     pub is_final: bool,
     pub timestamp_ms: i64,
+}
+
+/// Active companion character identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CharacterId {
+    #[default]
+    Coral,
+    Kai,
+}
+
+impl CharacterId {
+    /// Returns the canonical lowercase identifier string for this character.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Coral => "coral",
+            Self::Kai => "kai",
+        }
+    }
+}
+
+impl fmt::Display for CharacterId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for CharacterId {
+    type Err = SoulError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "coral" => Ok(Self::Coral),
+            "kai" => Ok(Self::Kai),
+            other => Err(SoulError::InvalidInput(format!(
+                "Unknown character id: {other}"
+            ))),
+        }
+    }
+}
+
+/// Decaying intensity entry for an individual emotion tag.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmotionDecayEntry {
+    pub tag: EmotionTag,
+    pub intensity: f32,
+    pub baseline: f32,
+    pub half_life_minutes: f32,
+    pub updated_at_ms: i64,
+}
+
+/// Full decaying emotion profile snapshot for a character.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EmotionProfileState {
+    pub character_id: CharacterId,
+    pub dominant: EmotionTag,
+    pub dominant_intensity: f32,
+    pub emotions: Vec<EmotionDecayEntry>,
+    pub computed_at_ms: i64,
+}
+
+/// Persisted companion diary entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiaryEntry {
+    pub id: String,
+    pub character_id: CharacterId,
+    pub entry_date: String,
+    pub title: String,
+    pub content: String,
+    pub mood: EmotionTag,
+    pub source: String,
+    pub merged_count: u32,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Editable persona biography for a companion character.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonaBio {
+    pub character_id: CharacterId,
+    pub display_name: String,
+    pub traits: String,
+    pub self_reflection: String,
+    pub favorite_topics: String,
+    pub updated_at: i64,
+}
+
+/// Editable user profile remembered across conversations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UserProfile {
+    pub display_name: String,
+    pub timezone: String,
+    pub location: String,
+    pub notes: String,
+    pub updated_at: i64,
+}
+
+/// High-level logical animation state for the Live2D avatar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AvatarLogicalState {
+    #[default]
+    Idle,
+    Think,
+    Write,
+    Speak,
+    Sleep,
+}
+
+impl AvatarLogicalState {
+    /// Returns the canonical lowercase name for this avatar logical state.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Think => "think",
+            Self::Write => "write",
+            Self::Speak => "speak",
+            Self::Sleep => "sleep",
+        }
+    }
+}
+
+impl fmt::Display for AvatarLogicalState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for AvatarLogicalState {
+    type Err = SoulError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "idle" => Ok(Self::Idle),
+            "think" => Ok(Self::Think),
+            "write" => Ok(Self::Write),
+            "speak" => Ok(Self::Speak),
+            "sleep" => Ok(Self::Sleep),
+            other => Err(SoulError::InvalidInput(format!(
+                "Unknown avatar logical state: {other}"
+            ))),
+        }
+    }
+}
+
+/// Full synchronized snapshot of the Live2D avatar state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AvatarSnapshot {
+    pub character_id: CharacterId,
+    pub logical_state: AvatarLogicalState,
+    pub emotion: EmotionState,
+    pub emotion_profile: EmotionProfileState,
+    pub eyes_closed: bool,
+    pub auto_blink_enabled: bool,
+    pub gaze_tracking_enabled: bool,
+    pub viseme: VisemeFrame,
+    pub updated_at_ms: i64,
+}
+
+/// Configuration for the autonomous background inner-loop heartbeat.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InnerLoopConfig {
+    pub enabled: bool,
+    pub interval_minutes: u32,
+    pub proactive_outreach_enabled: bool,
+    pub quiet_hours_start: Option<u8>,
+    pub quiet_hours_end: Option<u8>,
+    pub min_idle_seconds: u64,
+}
+
+impl Default for InnerLoopConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_minutes: 20,
+            proactive_outreach_enabled: true,
+            quiet_hours_start: Some(23),
+            quiet_hours_end: Some(7),
+            min_idle_seconds: 120,
+        }
+    }
+}
+
+/// Outcome category for an inner-loop beat execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InnerLoopBeatKind {
+    MemoryReflection,
+    EmotionUpdate,
+    ProactiveOutreach,
+    SkippedNoModel,
+    SkippedBusy,
+    SkippedLowRam,
+    SkippedDisabled,
+}
+
+/// Current runtime status and telemetry of the background inner loop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InnerLoopStatus {
+    pub config: InnerLoopConfig,
+    pub last_beat_at_ms: Option<i64>,
+    pub last_beat_kind: Option<InnerLoopBeatKind>,
+    pub last_beat_summary: Option<String>,
+    pub next_beat_at_ms: Option<i64>,
+    pub total_beats: u64,
+}
+
+/// Proactive companion message emitted asynchronously from the inner loop.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProactiveMessageEvent {
+    pub character_id: CharacterId,
+    pub content: String,
+    pub emotion: EmotionState,
+    pub reason: String,
+    pub timestamp_ms: i64,
+}
+
+/// Request payload to invoke a plugin or tool action.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionInvocation {
+    pub action: String,
+    pub params: serde_json::Value,
+}
+
+/// Result payload returned by a plugin action execution.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionResult {
+    pub action: String,
+    pub plugin_name: String,
+    pub success: bool,
+    pub summary: String,
+    pub data: Option<serde_json::Value>,
+}
+
+/// Metadata describing an installed companion plugin and its actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInfo {
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+    pub builtin: bool,
+    pub supported_actions: Vec<String>,
+}
+
+/// Configuration for a single external MCP server connection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerConfig {
+    pub name: String,
+    pub transport: String,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    pub enabled: bool,
+    pub timeout_ms: u64,
+}
+
+/// Global MCP integration configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpConfig {
+    pub enabled: bool,
+    pub config_path: Option<String>,
+    pub servers: Vec<McpServerConfig>,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            config_path: None,
+            servers: Vec::new(),
+        }
+    }
+}
+
+/// Descriptor for a tool exposed by a configured MCP server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpToolInfo {
+    pub server_name: String,
+    pub tool_name: String,
+    pub description: String,
 }
 
 /// Streaming callback for generated LLM tokens.
@@ -512,5 +810,153 @@ mod tests {
         assert_eq!(ev["type"], "insufficientRam");
         assert_eq!(ev["detail"]["neededMb"], 5200);
         assert_eq!(ev["detail"]["availableMb"], 3100);
+    }
+
+    #[test]
+    fn character_id_and_avatar_logical_state_round_trip() {
+        assert_eq!(CharacterId::default(), CharacterId::Coral);
+        for (id, expected) in [(CharacterId::Coral, "coral"), (CharacterId::Kai, "kai")] {
+            assert_eq!(id.as_str(), expected);
+            assert_eq!(id.to_string(), expected);
+            assert_eq!(
+                CharacterId::from_str(&expected.to_uppercase()).unwrap(),
+                id
+            );
+            let json = serde_json::to_string(&id).unwrap();
+            assert_eq!(json, format!("\"{expected}\""));
+            let back: CharacterId = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, id);
+        }
+
+        assert_eq!(AvatarLogicalState::default(), AvatarLogicalState::Idle);
+        for (state, expected) in [
+            (AvatarLogicalState::Idle, "idle"),
+            (AvatarLogicalState::Think, "think"),
+            (AvatarLogicalState::Write, "write"),
+            (AvatarLogicalState::Speak, "speak"),
+            (AvatarLogicalState::Sleep, "sleep"),
+        ] {
+            assert_eq!(state.to_string(), expected);
+            assert_eq!(
+                AvatarLogicalState::from_str(&format!(" {expected} ")).unwrap(),
+                state
+            );
+            let json = serde_json::to_string(&state).unwrap();
+            assert_eq!(json, format!("\"{expected}\""));
+            let back: AvatarLogicalState = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, state);
+        }
+    }
+
+    #[test]
+    fn inner_loop_and_mcp_defaults_round_trip() {
+        for (kind, expected) in [
+            (InnerLoopBeatKind::MemoryReflection, "memoryReflection"),
+            (InnerLoopBeatKind::EmotionUpdate, "emotionUpdate"),
+            (InnerLoopBeatKind::ProactiveOutreach, "proactiveOutreach"),
+            (InnerLoopBeatKind::SkippedNoModel, "skippedNoModel"),
+            (InnerLoopBeatKind::SkippedBusy, "skippedBusy"),
+            (InnerLoopBeatKind::SkippedLowRam, "skippedLowRam"),
+            (InnerLoopBeatKind::SkippedDisabled, "skippedDisabled"),
+        ] {
+            let json = serde_json::to_string(&kind).unwrap();
+            assert_eq!(json, format!("\"{expected}\""));
+            let back: InnerLoopBeatKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, kind);
+        }
+
+        let inner_cfg = InnerLoopConfig::default();
+        assert!(!inner_cfg.enabled);
+        assert_eq!(inner_cfg.interval_minutes, 20);
+        assert!(inner_cfg.proactive_outreach_enabled);
+        assert_eq!(inner_cfg.quiet_hours_start, Some(23));
+        assert_eq!(inner_cfg.quiet_hours_end, Some(7));
+        assert_eq!(inner_cfg.min_idle_seconds, 120);
+        let inner_json = serde_json::to_string(&inner_cfg).unwrap();
+        let inner_back: InnerLoopConfig = serde_json::from_str(&inner_json).unwrap();
+        assert_eq!(inner_back, inner_cfg);
+
+        let mcp_cfg = McpConfig::default();
+        assert!(!mcp_cfg.enabled);
+        assert!(mcp_cfg.config_path.is_none());
+        assert!(mcp_cfg.servers.is_empty());
+        let mcp_json = serde_json::to_string(&mcp_cfg).unwrap();
+        let mcp_back: McpConfig = serde_json::from_str(&mcp_json).unwrap();
+        assert_eq!(mcp_back, mcp_cfg);
+    }
+
+    #[test]
+    fn snapshot_diary_and_action_result_round_trip() {
+        let snapshot = AvatarSnapshot {
+            character_id: CharacterId::Kai,
+            logical_state: AvatarLogicalState::Speak,
+            emotion: EmotionState {
+                tag: EmotionTag::Joy,
+                intensity: 0.85,
+                reason: "happy chat".into(),
+                timestamp_ms: 1_700_000_000_000,
+            },
+            emotion_profile: EmotionProfileState {
+                character_id: CharacterId::Kai,
+                dominant: EmotionTag::Joy,
+                dominant_intensity: 0.85,
+                emotions: vec![EmotionDecayEntry {
+                    tag: EmotionTag::Joy,
+                    intensity: 0.85,
+                    baseline: 0.2,
+                    half_life_minutes: 30.0,
+                    updated_at_ms: 1_700_000_000_000,
+                }],
+                computed_at_ms: 1_700_000_000_000,
+            },
+            eyes_closed: false,
+            auto_blink_enabled: true,
+            gaze_tracking_enabled: true,
+            viseme: VisemeFrame {
+                mouth_open_y: 0.5,
+                mouth_form: 0.25,
+                energy: 0.7,
+                timestamp_ms: 1_700_000_000_000,
+            },
+            updated_at_ms: 1_700_000_000_000,
+        };
+        let snap_val = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(snap_val["characterId"], "kai");
+        assert_eq!(snap_val["logicalState"], "speak");
+        assert_eq!(snap_val["autoBlinkEnabled"], true);
+        let snap_back: AvatarSnapshot = serde_json::from_value(snap_val).unwrap();
+        assert_eq!(snap_back, snapshot);
+
+        let diary = DiaryEntry {
+            id: "diary-1".into(),
+            character_id: CharacterId::Coral,
+            entry_date: "2026-11-24".into(),
+            title: "Morning Tea".into(),
+            content: "Talked about Rust traits.".into(),
+            mood: EmotionTag::Empathetic,
+            source: "inner-loop".into(),
+            merged_count: 2,
+            created_at: 1000,
+            updated_at: 2000,
+        };
+        let diary_val = serde_json::to_value(&diary).unwrap();
+        assert_eq!(diary_val["characterId"], "coral");
+        assert_eq!(diary_val["entryDate"], "2026-11-24");
+        assert_eq!(diary_val["mergedCount"], 2);
+        let diary_back: DiaryEntry = serde_json::from_value(diary_val).unwrap();
+        assert_eq!(diary_back, diary);
+
+        let action_res = ActionResult {
+            action: "weather.today".into(),
+            plugin_name: "builtin-weather".into(),
+            success: true,
+            summary: "Sunny, 24C".into(),
+            data: Some(serde_json::json!({ "tempC": 24 })),
+        };
+        let action_val = serde_json::to_value(&action_res).unwrap();
+        assert_eq!(action_val["pluginName"], "builtin-weather");
+        assert_eq!(action_val["data"]["tempC"], 24);
+        let action_back: ActionResult = serde_json::from_value(action_val).unwrap();
+        assert_eq!(action_back, action_res);
     }
 }

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Left Upper Eyelash (clean masculine arch) -->
+  <path d="M 308 349 C 318 327, 343 324, 366 335 C 368 337, 367 341, 364 341 C 343 332, 321 335, 311 353 Z"
+        fill="#503F3C"/>
+  <path d="M 318 320 C 330 315, 348 315, 360 321" fill="none" stroke="#9B756D" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Right Upper Eyelash (clean masculine arch) -->
+  <path d="M 492 349 C 482 327, 457 324, 434 335 C 432 337, 433 341, 436 341 C 457 332, 479 335, 489 353 Z"
+        fill="#503F3C"/>
+  <path d="M 482 320 C 470 315, 452 315, 440 321" fill="none" stroke="#9B756D" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+</svg>

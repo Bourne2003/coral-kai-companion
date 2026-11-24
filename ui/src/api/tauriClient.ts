@@ -3,11 +3,14 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   IPC_EVENTS,
+  type AvatarSnapshot,
   type EmotionState,
+  type InnerLoopStatus,
   type IpcCommandName,
   type IpcCommands,
   type ModelInfo,
   type ModelKind,
+  type ProactiveMessageEvent,
   type SoulError,
   type SystemRamStatus,
   type TokenChunk,
@@ -20,8 +23,11 @@ type EventMap = {
   [IPC_EVENTS.CHAT_TOKEN]: TokenChunk;
   [IPC_EVENTS.AVATAR_EMOTION]: EmotionState;
   [IPC_EVENTS.AVATAR_VISEME]: VisemeFrame;
+  [IPC_EVENTS.AVATAR_STATE]: AvatarSnapshot;
   [IPC_EVENTS.VOICE_TRANSCRIPT]: TranscriptEvent;
   [IPC_EVENTS.SYSTEM_RAM]: SystemRamStatus;
+  [IPC_EVENTS.PROACTIVE_MESSAGE]: ProactiveMessageEvent;
+  [IPC_EVENTS.INNER_LOOP_STATUS]: InnerLoopStatus;
 };
 
 export type EventKey = keyof EventMap;
@@ -144,18 +150,39 @@ export async function pickAndRegisterModel(
 ): Promise<ModelInfo | null> {
   if (isTauriRuntime()) {
     const extensions =
-      kind === "llm" ? ["gguf"] : kind === "asr" ? ["bin"] : ["onnx", "gguf"];
+      kind === "llm"
+        ? ["gguf"]
+        : kind === "asr"
+        ? ["bin"]
+        : kind === "embed"
+        ? ["onnx"]
+        : ["json"];
+    const filterName =
+      kind === "llm"
+        ? "GGUF Language Model"
+        : kind === "asr"
+        ? "Whisper GGML Model"
+        : kind === "embed"
+        ? "ONNX Embedding Model"
+        : "Live2D Model";
     const selected = await open({
-      title: `Select ${kind.toUpperCase()} Model File`,
+      title: `Select ${filterName} File`,
       multiple: false,
       directory: false,
-      filters: [{ name: `${kind.toUpperCase()} Model`, extensions }],
+      filters: [{ name: filterName, extensions }],
     });
     if (!selected || Array.isArray(selected)) return null;
     return invokeCommand("register_custom_model", { kind, path: selected });
   }
 
-  const accept = kind === "llm" ? ".gguf" : kind === "asr" ? ".bin" : ".onnx,.gguf";
+  const accept =
+    kind === "llm"
+      ? ".gguf"
+      : kind === "asr"
+      ? ".bin"
+      : kind === "embed"
+      ? ".onnx"
+      : ".json";
   const files = await openBrowserFilePicker({ accept });
   if (!files || files.length === 0) return null;
   const file = files[0];
@@ -236,4 +263,22 @@ export async function importSoulMemoryWithPicker(): Promise<number | null> {
     return count;
   }
   return invokeCommand("import_soul_memory", { sourcePath: file.name });
+}
+
+export async function pickMcpConfigFile(): Promise<string | null> {
+  if (isTauriRuntime()) {
+    const selected = await open({
+      title: "Select MCP Configuration (.json)",
+      multiple: false,
+      directory: false,
+      filters: [{ name: "MCP Config JSON", extensions: ["json"] }],
+    });
+    if (!selected || Array.isArray(selected)) return null;
+    return selected;
+  }
+
+  const files = await openBrowserFilePicker({ accept: ".json" });
+  if (!files || files.length === 0) return null;
+  const file = files[0];
+  return `/Users/local/.config/mcp/${file.name}`;
 }

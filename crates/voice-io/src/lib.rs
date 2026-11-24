@@ -25,7 +25,8 @@ pub use audio::{
 pub use tts_viseme::{
     PcmVisemePlayer, SpeakingGate, TtsSpeechCoordinator, VISEME_FPS, VISEME_FRAME_INTERVAL,
     VisemeSpring, VoiceDescriptor, VoiceLangTarget, detect_thai_script, extract_pcm_viseme_frames,
-    generate_phonetic_visemes, route_voice_language, select_preferred_voice, zero_crossing_rate,
+    generate_phonetic_visemes, route_voice_language, select_preferred_voice,
+    select_preferred_voice_for_persona, zero_crossing_rate,
 };
 
 fn encode_language_pref(pref: LanguagePref) -> u8 {
@@ -135,6 +136,27 @@ impl VoicePipeline {
         self.asr.register_custom_model(path, name)
     }
 
+    /// Restore persisted custom `.bin` Whisper ASR entries without loading them into RAM.
+    pub fn restore_custom_models(&self, entries: &[(PathBuf, Option<String>)]) -> Vec<ModelInfo> {
+        self.asr.restore_custom_models(entries)
+    }
+
+    /// Remove a custom ASR model entry by `id` or `path`.
+    pub fn remove_custom_model(&self, model_id_or_path: &str) -> SoulResult<bool> {
+        self.asr.remove_custom_model(model_id_or_path)
+    }
+
+    /// Set whether TTS should use masculine voice preference / deeper pitch (`is_male = true`, Kai)
+    /// or feminine voice preference (`is_male = false`, Coral).
+    pub fn set_voice_persona(&self, is_male: bool) {
+        self.tts.set_voice_persona(is_male);
+    }
+
+    /// Returns `true` when the masculine (`Kai`) TTS persona is active.
+    pub fn is_male_voice(&self) -> bool {
+        self.tts.is_male_persona()
+    }
+
     /// Scan available ASR models, find `model_id`, and hot-swap to it (dropping any previous
     /// Whisper Metal context first).
     pub async fn switch_asr_model(&self, model_id: &str) -> SoulResult<ModelInfo> {
@@ -217,6 +239,12 @@ impl VoiceEngine for VoicePipeline {
         if self.voice_mode() == VoiceMode::Muted {
             return Err(SoulError::Voice(
                 "Microphone is muted; switch voice mode before listening".into(),
+            ));
+        }
+
+        if self.active_asr_model().is_none() {
+            return Err(SoulError::ModelNotFound(
+                "ยังไม่ได้นำเข้าโมเดลเสียง Whisper (.bin) กรุณาเลือกไฟล์ในเมนู Models ก่อนใช้งานไมโครโฟน / No Whisper ASR model loaded; import and activate a .bin file in Models first.".into(),
             ));
         }
 

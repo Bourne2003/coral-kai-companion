@@ -1,19 +1,21 @@
 [package]
-name = "soulmate2d"
+name = "coral-kai-companion"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "SoulMate2D — Offline macOS Apple Silicon Desktop AI Companion"
+description = "Coral&Kai Companion — Offline macOS Apple Silicon Desktop AI Companion"
 
 [lib]
-name = "soulmate2d_lib"
+name = "coral_kai_companion_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+async-trait.workspace = true
 brain-llm = { path = "../crates/brain-llm" }
+chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shared-types = { path = "../crates/shared-types" }

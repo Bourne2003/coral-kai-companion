@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Left & Right Visible Rounded Ears -->
+  <path d="M 294 352 C 268 350, 264 388, 280 406 C 289 415, 300 412, 304 400 Z"
+        fill="#FDECE4" stroke="#503F3C" stroke-width="4.0" stroke-linejoin="round"/>
+  <path d="M 280 368 C 276 378, 280 390, 290 393" fill="none" stroke="#F2C9BA" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M 506 352 C 532 350, 536 388, 520 406 C 511 415, 500 412, 496 400 Z"
+        fill="#FDECE4" stroke="#503F3C" stroke-width="4.0" stroke-linejoin="round"/>
+  <path d="M 520 368 C 524 378, 520 390, 510 393" fill="none" stroke="#F2C9BA" stroke-width="2.6" stroke-linecap="round"/>
+
+  <!-- Main Anime Boy Head -->
+  <path d="M 292 340
+           C 290 396, 314 440, 358 462
+           C 380 473, 392 476, 400 476
+           C 408 476, 420 473, 442 462
+           C 486 440, 510 396, 508 340
+           C 508 252, 460 210, 400 210
+           C 340 210, 292 252, 292 340 Z"
+        fill="#FDECE4" stroke="#503F3C" stroke-width="4.2" stroke-linejoin="round"/>
+  <path d="M 296 318 C 304 248, 348 212, 400 212 C 452 212, 496 248, 504 318 C 476 294, 438 296, 400 308 C 362 296, 324 294, 296 318 Z"
+        fill="#F2C9BA" opacity="0.45"/>
+  <path d="M 399 389 Q 397 396 401 399" fill="none" stroke="#503F3C" stroke-width="2.8" stroke-linecap="round"/>
+</svg>

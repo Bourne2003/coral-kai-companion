@@ -6,7 +6,9 @@ license.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+chrono.workspace = true
 llama-cpp-2 = { version = "0.1", features = ["metal"] }
+serde.workspace = true
 serde_json.workspace = true
 shared-types = { path = "../shared-types" }
 sysinfo.workspace = true

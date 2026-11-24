@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>SoulMate2D needs microphone access for offline push-to-talk and hands-free voice conversation.</string>
+  <string>Coral&amp;Kai Companion needs microphone access for offline push-to-talk and hands-free voice conversation.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
-  <string>SoulMate2D uses local on-device speech recognition to transcribe your voice privately offline.</string>
+  <string>Coral&amp;Kai Companion uses local on-device speech recognition to transcribe your voice privately offline.</string>
 </dict>
 </plist>

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Neck & upper collarbone -->
+  <path d="M 366 458 L 366 530 C 350 546, 322 556, 312 576 L 488 576 C 478 556, 450 546, 434 530 L 434 458 Z"
+        fill="#FDECE4" stroke="#503F3C" stroke-width="4.2" stroke-linejoin="round"/>
+  <path d="M 367 464 Q 400 496 433 464 L 433 488 Q 400 512 367 488 Z" fill="#F2C9BA"/>
+
+  <!-- Broad-shouldered crisp white collared shirt extending cleanly off bottom edge -->
+  <path d="M 326 534
+           C 268 552, 212 576, 192 630
+           C 172 690, 156 840, 152 1012
+           L 648 1012
+           C 644 840, 628 690, 608 630
+           C 588 576, 532 552, 474 534
+           L 434 516
+           L 400 554
+           L 366 516 Z"
+        fill="#FFFFFF" stroke="#503F3C" stroke-width="4.4" stroke-linejoin="round"/>
+
+  <!-- Broad arm-crease & chest fold lines matching Kai reference -->
+  <path d="M 254 646 C 258 750, 260 865, 264 1008" fill="none" stroke="#503F3C" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M 546 646 C 542 750, 540 865, 536 1008" fill="none" stroke="#503F3C" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M 222 710 C 214 800, 210 890, 208 1008" fill="none" stroke="#E6EAF0" stroke-width="11" stroke-linecap="round"/>
+  <path d="M 578 710 C 586 800, 590 890, 592 1008" fill="none" stroke="#E6EAF0" stroke-width="11" stroke-linecap="round"/>
+  <path d="M 274 714 C 268 746, 268 776, 274 804" fill="none" stroke="#E6EAF0" stroke-width="6" stroke-linecap="round"/>
+  <path d="M 526 714 C 532 746, 532 776, 526 804" fill="none" stroke="#E6EAF0" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Crisp dress shirt collar -->
+  <path d="M 366 504 L 326 534 L 352 578 L 398 552 Z"
+        fill="#FFFFFF" stroke="#503F3C" stroke-width="4.0" stroke-linejoin="round"/>
+  <path d="M 434 504 L 474 534 L 448 578 L 402 552 Z"
+        fill="#FFFFFF" stroke="#503F3C" stroke-width="4.0" stroke-linejoin="round"/>
+  <path d="M 334 540 L 354 570 L 392 552" fill="none" stroke="#E6EAF0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 466 540 L 446 570 L 408 552" fill="none" stroke="#E6EAF0" stroke-width="3" stroke-linecap="round"/>
+</svg>

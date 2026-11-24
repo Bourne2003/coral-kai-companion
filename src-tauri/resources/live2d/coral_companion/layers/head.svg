@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Subtle right ear peeking out below right temple hair -->
+  <path d="M 504 356 C 522 355, 526 382, 514 396 C 507 403, 498 400, 496 390 Z"
+        fill="#FDECE4" stroke="#503F3C" stroke-width="3.8" stroke-linejoin="round"/>
+  <path d="M 512 370 C 514 378, 510 386, 504 388" fill="none" stroke="#F2C9BA" stroke-width="2.4" stroke-linecap="round"/>
+
+  <!-- Main soft anime head -->
+  <path d="M 294 342
+           C 292 396, 314 440, 358 462
+           C 380 473, 392 476, 400 476
+           C 408 476, 420 473, 442 462
+           C 486 440, 508 396, 506 342
+           C 506 254, 460 212, 400 212
+           C 340 212, 294 254, 294 342 Z"
+        fill="#FDECE4" stroke="#503F3C" stroke-width="4.2" stroke-linejoin="round"/>
+  <!-- Soft forehead bangs shadow -->
+  <path d="M 298 318 C 306 250, 348 214, 400 214 C 452 214, 494 250, 502 318 C 474 294, 438 296, 400 308 C 362 296, 326 294, 298 318 Z"
+        fill="#F2C9BA" opacity="0.45"/>
+  <!-- Delicate nose tick -->
+  <path d="M 399 389 Q 397 396 401 399" fill="none" stroke="#503F3C" stroke-width="2.8" stroke-linecap="round"/>
+</svg>

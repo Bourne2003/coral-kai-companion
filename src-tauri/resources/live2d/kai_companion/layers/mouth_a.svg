@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Open "Ah" vowel shape -->
+  <path d="M 381 420 C 392 417, 408 417, 419 420 C 423 436, 414 452, 400 452 C 386 452, 377 436, 381 420 Z"
+        fill="#8A3F49" stroke="#503F3C" stroke-width="3.2" stroke-linejoin="round"/>
+  <path d="M 385 422 Q 400 425 415 422 L 413 428 Q 400 430 387 428 Z" fill="#FFFFFF"/>
+  <path d="M 388 443 Q 400 435 412 443 C 409 449, 405 450, 400 450 C 395 450, 391 449, 388 443 Z" fill="#F2949C"/>
+</svg>

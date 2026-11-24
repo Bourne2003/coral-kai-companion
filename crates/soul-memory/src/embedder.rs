@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -14,6 +16,69 @@ const MAX_SEQUENCE_TOKENS: usize = 512;
 
 static GLOBAL_ORT_ENV: OnceLock<Result<ort::environment::Environment, String>> = OnceLock::new();
 
+/// Validates a user-provided `.onnx` embedding model file and its required sibling `tokenizer.json`.
+pub fn validate_onnx_embed_file(onnx_path: &Path) -> SoulResult<()> {
+    if !onnx_path.exists() || !onnx_path.is_file() {
+        return Err(SoulError::ModelNotFound(format!(
+            "ONNX embedding file not found: {}",
+            onnx_path.display()
+        )));
+    }
+
+    let is_onnx_ext = onnx_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("onnx"));
+    if !is_onnx_ext {
+        return Err(SoulError::InvalidInput(format!(
+            "Embedding model file must have .onnx extension: {}",
+            onnx_path.display()
+        )));
+    }
+
+    let size_bytes = std::fs::metadata(onnx_path)?.len();
+    if size_bytes == 0 {
+        return Err(SoulError::InvalidInput(format!(
+            "ONNX embedding file is empty: {}",
+            onnx_path.display()
+        )));
+    }
+
+    let mut file = File::open(onnx_path)?;
+    let mut header = [0u8; 8];
+    let n = file.read(&mut header)?;
+    if n == 0 || !is_valid_onnx_protobuf_start(header[0]) {
+        return Err(SoulError::InvalidInput(format!(
+            "File does not appear to be a valid ONNX protobuf model: {}",
+            onnx_path.display()
+        )));
+    }
+
+    let parent = onnx_path.parent().ok_or_else(|| {
+        SoulError::InvalidInput(format!(
+            "Cannot resolve parent directory for ONNX model: {}",
+            onnx_path.display()
+        ))
+    })?;
+    let tokenizer_path = parent.join("tokenizer.json");
+    if !tokenizer_path.is_file() {
+        return Err(SoulError::ModelNotFound(format!(
+            "Sibling tokenizer.json not found in {}: an ONNX embedding model requires tokenizer.json alongside the .onnx file",
+            parent.display()
+        )));
+    }
+
+    Ok(())
+}
+
+/// ONNX `ModelProto` root message protobuf field tags (wire types varint=0 or length-delimited=2).
+fn is_valid_onnx_protobuf_start(first_byte: u8) -> bool {
+    matches!(
+        first_byte,
+        0x08 | 0x12 | 0x1A | 0x22 | 0x2A | 0x30 | 0x3A | 0x42 | 0x72
+    )
+}
+
 /// Local embedding backend supporting offline ONNX MiniLM inference and deterministic fallback.
 pub struct Embedder {
     backend: EmbedderBackend,
@@ -25,6 +90,7 @@ enum EmbedderBackend {
 }
 
 struct OnnxState {
+    model_path: PathBuf,
     tokenizer: Tokenizer,
     session: Mutex<Session>,
     has_token_type_ids: bool,
@@ -34,6 +100,7 @@ impl std::fmt::Debug for Embedder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Embedder")
             .field("kind", &self.kind())
+            .field("model_path", &self.model_path())
             .finish()
     }
 }
@@ -85,11 +152,35 @@ impl Embedder {
         }
     }
 
+    /// Strictly validate and load an ONNX embedding model from `onnx_path` and its sibling
+    /// `tokenizer.json`. Unlike [`Self::from_dir`], errors are returned directly to the caller.
+    pub fn from_onnx_file(onnx_path: &Path) -> SoulResult<Self> {
+        validate_onnx_embed_file(onnx_path)?;
+        let embed_dir = onnx_path.parent().unwrap_or_else(|| Path::new("."));
+        let tokenizer_path = embed_dir.join("tokenizer.json");
+        let state = Self::try_load_onnx(embed_dir, onnx_path, &tokenizer_path)?;
+        tracing::info!(
+            model = %state.model_path.display(),
+            "Hot-loaded user ONNX embedding model"
+        );
+        Ok(Self {
+            backend: EmbedderBackend::Onnx(state),
+        })
+    }
+
     /// Return `"onnx"` when backed by a loaded ONNX session, or `"ngram-fallback"` otherwise.
     pub fn kind(&self) -> &'static str {
         match self.backend {
             EmbedderBackend::Onnx(_) => "onnx",
             EmbedderBackend::CharNgramFallback => "ngram-fallback",
+        }
+    }
+
+    /// Return the active ONNX model file path if an ONNX embedder is loaded, or `None` in fallback mode.
+    pub fn model_path(&self) -> Option<&Path> {
+        match &self.backend {
+            EmbedderBackend::Onnx(state) => Some(state.model_path.as_path()),
+            EmbedderBackend::CharNgramFallback => None,
         }
     }
 
@@ -108,7 +199,7 @@ impl Embedder {
     ) -> SoulResult<OnnxState> {
         let dylib_path = find_onnxruntime_dylib(embed_dir).ok_or_else(|| {
             SoulError::Memory(
-                "libonnxruntime dynamic library not found (set ORT_DYLIB_PATH or place libonnxruntime.dylib in embed_dir)".into(),
+                "libonnxruntime dynamic library not found (set ORT_DYLIB_PATH or place libonnxruntime.dylib in embed_dir or runtime/)".into(),
             )
         })?;
 
@@ -153,7 +244,9 @@ impl Embedder {
             .iter()
             .any(|outlet| outlet.name() == "token_type_ids");
 
+        let canonical_model = std::fs::canonicalize(model_path).unwrap_or_else(|_| model_path.to_path_buf());
         Ok(OnnxState {
+            model_path: canonical_model,
             tokenizer,
             session: Mutex::new(session),
             has_token_type_ids,
@@ -395,9 +488,20 @@ fn find_onnxruntime_dylib(embed_dir: &Path) -> Option<PathBuf> {
         return Some(found);
     }
 
+    for runtime_dir in [
+        PathBuf::from("src-tauri/resources/runtime"),
+        PathBuf::from("resources/runtime"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/resources/runtime"),
+    ] {
+        if let Some(found) = find_dylib_in_dir(&runtime_dir) {
+            return Some(found);
+        }
+    }
+
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             for candidate_dir in [
+                exe_dir.join("../Resources/resources/runtime"),
                 exe_dir.to_path_buf(),
                 exe_dir.join("../Frameworks"),
                 exe_dir.join("../Resources"),

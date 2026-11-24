@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SoulMate2D Offline Model Provisioner
+# Coral&Kai Companion Offline Model Provisioner
 # Queries HuggingFace API dynamically via /usr/bin/curl (never Python SSL),
 # downloads resumable local weights (.gguf, .bin, .onnx), validates sizes &
 # magic headers offline via python3, and writes manifest.json + tokenizer JSONs.
@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-TARGET_MODELS_DIR="${REPO_ROOT}/src-tauri/resources/models"
+TARGET_MODELS_DIR="${HOME}/Library/Application Support/com.coralkai.companion/models"
 MANIFEST_DIR=""
 FORCE_DOWNLOAD=0
 
@@ -17,9 +17,12 @@ usage() {
   cat <<'EOF'
 Usage: provision_models.sh [OPTIONS]
 
+Optional user-side download helper for Coral&Kai Companion Bring-Your-Own-Model (BYOM).
+Models are NOT bundled into src-tauri/resources/models/.
+
 Options:
   --target-models-dir <dir>  Directory for binary model weights (.gguf, .bin, .onnx)
-                             (default: <repo>/src-tauri/resources/models)
+                             (default: ~/Library/Application Support/com.coralkai.companion/models)
   --manifest-dir <dir>       Directory for manifest.json & embed tokenizer/config JSONs
                              (default: same as --target-models-dir)
   --force                    Re-download binaries even if already present and valid

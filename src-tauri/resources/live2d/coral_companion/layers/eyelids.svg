@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Left Upper Eyelash + 3 delicate feminine outer lashes -->
+  <path d="M 308 348 C 317 327, 342 323, 366 334 C 368 336, 368 340, 365 340 C 342 331, 321 335, 312 352 Z"
+        fill="#503F3C"/>
+  <path d="M 312 344 L 301 337 M 316 337 L 306 328 M 323 332 L 316 322"
+        fill="none" stroke="#503F3C" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M 318 320 C 330 315, 348 315, 360 321" fill="none" stroke="#9B756D" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Right Upper Eyelash + 3 delicate feminine outer lashes -->
+  <path d="M 492 348 C 483 327, 458 323, 434 334 C 432 336, 432 340, 435 340 C 458 331, 479 335, 488 352 Z"
+        fill="#503F3C"/>
+  <path d="M 488 344 L 499 337 M 484 337 L 494 328 M 477 332 L 484 322"
+        fill="none" stroke="#503F3C" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M 482 320 C 470 315, 452 315, 440 321" fill="none" stroke="#9B756D" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+</svg>

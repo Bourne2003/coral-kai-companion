@@ -5,9 +5,11 @@ use std::path::Path;
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags, backup::Backup};
-use shared_types::{RelationshipState, SoulError, SoulResult, new_id};
+use shared_types::{CharacterId, SoulError, SoulResult, new_id};
 
-use crate::schema::{REQUIRED_CORE_TABLES, REQUIRED_VIRTUAL_TABLES, db_err};
+use crate::schema::{
+    REQUIRED_CORE_TABLES, REQUIRED_VIRTUAL_TABLES, db_err, ensure_schema_and_seeds,
+};
 
 const SQLITE_HEADER_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 
@@ -72,7 +74,11 @@ pub fn export_snapshot_sync(src_conn: &Connection, target_path: &Path) -> SoulRe
 
 /// Validate a `.sqlite` snapshot file and atomically restore it into the active database.
 /// Returns the total number of imported memory records (`turns + facts + episodes + dream_diaries`).
-pub fn import_snapshot_sync(dst_conn: &mut Connection, source_path: &Path) -> SoulResult<usize> {
+pub fn import_snapshot_sync(
+    dst_conn: &mut Connection,
+    source_path: &Path,
+    character_id: CharacterId,
+) -> SoulResult<usize> {
     if !source_path.exists() || !source_path.is_file() {
         return Err(SoulError::InvalidInput(format!(
             "Snapshot file does not exist: {}",
@@ -109,7 +115,7 @@ pub fn import_snapshot_sync(dst_conn: &mut Connection, source_path: &Path) -> So
         )));
     }
 
-    // Verify all required SoulMate2D tables exist.
+    // Verify all required Coral&Kai Companion tables exist.
     let existing_tables: HashSet<String> = {
         let mut stmt = src_conn
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -130,7 +136,7 @@ pub fn import_snapshot_sync(dst_conn: &mut Connection, source_path: &Path) -> So
     {
         if !existing_tables.contains(table) {
             return Err(SoulError::InvalidInput(format!(
-                "Snapshot is missing required SoulMate2D table `{table}`"
+                "Snapshot is missing required Coral&Kai Companion table `{table}`"
             )));
         }
     }
@@ -144,26 +150,11 @@ pub fn import_snapshot_sync(dst_conn: &mut Connection, source_path: &Path) -> So
             .map_err(db_err)?;
     }
 
-    // Ensure foreign keys & single-row relationship state remain consistent after restore.
+    // Ensure foreign keys, extended inner-life tables, & seed rows remain consistent after restore.
     dst_conn
         .execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")
         .map_err(db_err)?;
-    let def = RelationshipState::default();
-    dst_conn
-        .execute(
-            "INSERT OR IGNORE INTO relationship_state (
-                id, trust, warmth, familiarity, mood_baseline, total_turns, last_interaction_at
-             ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![
-                def.trust,
-                def.warmth,
-                def.familiarity,
-                def.mood_baseline,
-                def.total_turns as i64,
-                def.last_interaction_at,
-            ],
-        )
-        .map_err(db_err)?;
+    ensure_schema_and_seeds(dst_conn, character_id)?;
 
     Ok(imported_count)
 }

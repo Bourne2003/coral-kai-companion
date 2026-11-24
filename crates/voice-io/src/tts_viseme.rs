@@ -50,15 +50,28 @@ pub fn route_voice_language(text: &str, pref: LanguagePref) -> VoiceLangTarget {
     VoiceLangTarget::English
 }
 
-/// Pick the highest-priority voice matching `target` (`Narisa`/`Kanya` for Thai,
-/// `Ava`/`Samantha` for English).
+/// Pick the highest-priority voice matching `target` for the default feminine persona
+/// (`Narisa`/`Kanya` for Thai, `Ava`/`Samantha` for English).
 pub fn select_preferred_voice(
     voices: &[VoiceDescriptor],
     target: VoiceLangTarget,
 ) -> Option<usize> {
+    select_preferred_voice_for_persona(voices, target, false)
+}
+
+/// Pick the highest-priority voice matching `target` and speaker gender preference.
+///
+/// For Coral (`is_male = false`): prefers `Narisa`/`Kanya` (Thai) and `Ava`/`Samantha` (English).
+/// For Kai (`is_male = true`): prefers masculine Thai/English voices if available, falling back
+/// gracefully to the best available language-matched voice (with deeper pitch applied during TTS).
+pub fn select_preferred_voice_for_persona(
+    voices: &[VoiceDescriptor],
+    target: VoiceLangTarget,
+    is_male: bool,
+) -> Option<usize> {
     let mut best: Option<(usize, i32)> = None;
     for (idx, voice) in voices.iter().enumerate() {
-        let score = score_voice(voice, target);
+        let score = score_voice_for_persona(voice, target, is_male);
         if score > 0 && best.is_none_or(|(_, best_score)| score > best_score) {
             best = Some((idx, score));
         }
@@ -66,7 +79,11 @@ pub fn select_preferred_voice(
     best.map(|(idx, _)| idx)
 }
 
-fn score_voice(voice: &VoiceDescriptor, target: VoiceLangTarget) -> i32 {
+fn score_voice_for_persona(
+    voice: &VoiceDescriptor,
+    target: VoiceLangTarget,
+    is_male: bool,
+) -> i32 {
     let name = voice.name.to_ascii_lowercase();
     let id = voice.id.to_ascii_lowercase();
     let lang = voice.language.to_ascii_lowercase().replace('_', "-");
@@ -84,7 +101,21 @@ fn score_voice(voice: &VoiceDescriptor, target: VoiceLangTarget) -> i32 {
             if score == 0 {
                 return 0;
             }
-            if name.contains("narisa") || id.contains("narisa") {
+            if is_male {
+                if name.contains("pattara")
+                    || id.contains("pattara")
+                    || name.contains("narin")
+                    || id.contains("narin")
+                    || name.contains("male")
+                    || id.contains("male")
+                {
+                    score += 120;
+                } else if name.contains("narisa") || id.contains("narisa") {
+                    score += 80;
+                } else if name.contains("kanya") || id.contains("kanya") {
+                    score += 75;
+                }
+            } else if name.contains("narisa") || id.contains("narisa") {
                 score += 110;
             } else if name.contains("kanya") || id.contains("kanya") {
                 score += 105;
@@ -106,7 +137,21 @@ fn score_voice(voice: &VoiceDescriptor, target: VoiceLangTarget) -> i32 {
             if score == 0 {
                 return 0;
             }
-            if name.contains("ava") || id.contains("ava") {
+            if is_male {
+                const MALE_EN_VOICES: [&str; 9] = [
+                    "daniel", "alex", "aaron", "arthur", "tom", "oliver", "rishi", "fred", "gordon",
+                ];
+                if MALE_EN_VOICES
+                    .iter()
+                    .any(|m| name.contains(m) || id.contains(m))
+                {
+                    score += 120;
+                } else if name.contains("ava") || id.contains("ava") {
+                    score += 70;
+                } else if name.contains("samantha") || id.contains("samantha") {
+                    score += 65;
+                }
+            } else if name.contains("ava") || id.contains("ava") {
                 score += 110;
             } else if name.contains("samantha") || id.contains("samantha") {
                 score += 105;
@@ -123,6 +168,7 @@ enum TtsCommand {
     Speak {
         text: String,
         target: VoiceLangTarget,
+        is_male: bool,
         rate_scale: f32,
         pitch_scale: f32,
         reply: mpsc::Sender<bool>,
@@ -154,13 +200,21 @@ impl TtsActor {
         Self { tx }
     }
 
-    fn speak(&self, text: String, target: VoiceLangTarget, rate_scale: f32, pitch_scale: f32) -> bool {
+    fn speak(
+        &self,
+        text: String,
+        target: VoiceLangTarget,
+        is_male: bool,
+        rate_scale: f32,
+        pitch_scale: f32,
+    ) -> bool {
         let (reply_tx, reply_rx) = mpsc::channel();
         if self
             .tx
             .send(TtsCommand::Speak {
                 text,
                 target,
+                is_male,
                 rate_scale,
                 pitch_scale,
                 reply: reply_tx,
@@ -235,12 +289,15 @@ fn run_tts_actor_loop(rx: mpsc::Receiver<TtsCommand>) {
             TtsCommand::Speak {
                 text,
                 target,
+                is_male,
                 rate_scale,
                 pitch_scale,
                 reply,
             } => {
                 let started = if let Some((engine, descriptors, voices)) = state.as_mut() {
-                    if let Some(idx) = select_preferred_voice(descriptors, target) {
+                    if let Some(idx) =
+                        select_preferred_voice_for_persona(descriptors, target, is_male)
+                    {
                         if let Some(voice) = voices.get(idx) {
                             let _ = engine.set_voice(voice);
                         }
@@ -251,10 +308,12 @@ fn run_tts_actor_loop(rx: mpsc::Receiver<TtsCommand>) {
                     let desired_rate = (normal_rate * rate_scale).clamp(min_rate, max_rate);
                     let _ = engine.set_rate(desired_rate);
 
+                    let persona_pitch = if is_male { 0.92 } else { 1.0 };
                     let normal_pitch = engine.normal_pitch();
                     let min_pitch = engine.min_pitch();
                     let max_pitch = engine.max_pitch();
-                    let desired_pitch = (normal_pitch * pitch_scale).clamp(min_pitch, max_pitch);
+                    let desired_pitch =
+                        (normal_pitch * pitch_scale * persona_pitch).clamp(min_pitch, max_pitch);
                     let _ = engine.set_pitch(desired_pitch);
 
                     match engine.speak(&text, true) {
@@ -734,6 +793,7 @@ fn clear_cancel_handle(
 pub struct TtsSpeechCoordinator {
     gate: SpeakingGate,
     active_cancel: Mutex<Option<SpeechCancelHandle>>,
+    is_male: AtomicBool,
 }
 
 impl TtsSpeechCoordinator {
@@ -741,7 +801,19 @@ impl TtsSpeechCoordinator {
         Self {
             gate,
             active_cancel: Mutex::new(None),
+            is_male: AtomicBool::new(false),
         }
+    }
+
+    /// Set whether TTS should prefer masculine voice profiles / deeper pitch (`Kai`)
+    /// vs feminine voice profiles (`Coral`, default).
+    pub fn set_voice_persona(&self, is_male: bool) {
+        self.is_male.store(is_male, Ordering::Release);
+    }
+
+    /// Returns `true` when the masculine (`Kai`) TTS persona is active.
+    pub fn is_male_persona(&self) -> bool {
+        self.is_male.load(Ordering::Acquire)
     }
 
     pub async fn speak(
@@ -771,6 +843,7 @@ impl TtsSpeechCoordinator {
         let _speaking_guard = self.gate.acquire();
 
         let target = route_voice_language(trimmed, pref);
+        let is_male = self.is_male_persona();
         let (rate_scale, pitch_scale) = match emotion {
             EmotionTag::Joy => (1.05, 1.06),
             EmotionTag::Sadness => (0.90, 0.94),
@@ -782,7 +855,7 @@ impl TtsSpeechCoordinator {
         let actor = TtsActor::global();
         let text_owned = trimmed.to_string();
         let os_tts_active = tokio::task::spawn_blocking(move || {
-            actor.speak(text_owned, target, rate_scale, pitch_scale)
+            actor.speak(text_owned, target, is_male, rate_scale, pitch_scale)
         })
         .await
         .unwrap_or(false);

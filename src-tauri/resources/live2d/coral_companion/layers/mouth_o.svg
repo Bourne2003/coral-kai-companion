@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Rounded expressive "Oh" / "O" vowel shape -->
+  <ellipse cx="400" cy="434" rx="13" ry="15.5" fill="#8A3F49" stroke="#503F3C" stroke-width="3.1"/>
+  <ellipse cx="400" cy="443" rx="8.2" ry="4.6" fill="#F2949C"/>
+</svg>

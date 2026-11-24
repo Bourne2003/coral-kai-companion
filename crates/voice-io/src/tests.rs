@@ -12,7 +12,7 @@ use crate::{
     AdaptiveVad, MonoResampler, PcmVisemePlayer, TARGET_SAMPLE_RATE, VAD_FRAME_SAMPLES, VadConfig,
     VadDecision, VoiceDescriptor, VoiceLangTarget, VoicePipeline, detect_thai_script,
     downmix_to_mono_f32, extract_pcm_viseme_frames, frame_rms, generate_phonetic_visemes,
-    route_voice_language, select_preferred_voice,
+    route_voice_language, select_preferred_voice, select_preferred_voice_for_persona,
 };
 
 fn unique_temp_dir(label: &str) -> PathBuf {
@@ -354,6 +354,29 @@ fn thai_and_english_voice_routing_and_selection() {
         minimal[select_preferred_voice(&minimal, VoiceLangTarget::English).unwrap()].name,
         "Samantha"
     );
+
+    // Persona-aware selection: Kai (is_male = true) prefers masculine voices if present,
+    // and falls back gracefully when only feminine voices exist.
+    let mut mixed_voices = voices.clone();
+    mixed_voices.push(VoiceDescriptor {
+        id: "com.apple.voice.enhanced.th-TH.Pattara".into(),
+        name: "Pattara".into(),
+        language: "th-TH".into(),
+    });
+    let kai_th = select_preferred_voice_for_persona(&mixed_voices, VoiceLangTarget::Thai, true)
+        .expect("Kai Thai voice");
+    assert_eq!(mixed_voices[kai_th].name, "Pattara");
+    let kai_en = select_preferred_voice_for_persona(&mixed_voices, VoiceLangTarget::English, true)
+        .expect("Kai English voice");
+    assert_eq!(mixed_voices[kai_en].name, "Daniel");
+
+    let coral_en =
+        select_preferred_voice_for_persona(&mixed_voices, VoiceLangTarget::English, false)
+            .expect("Coral English voice");
+    assert!(mixed_voices[coral_en].name.contains("Ava"));
+
+    // Fallback when no masculine Thai voice exists.
+    assert!(select_preferred_voice_for_persona(&minimal, VoiceLangTarget::Thai, true).is_some());
 }
 
 #[test]
@@ -658,4 +681,61 @@ async fn metal_whisper_real_model_smoke_if_present() {
 
     pipeline.unload_asr_model().await.expect("unload ASR");
     assert!(pipeline.active_asr_model().is_none());
+}
+
+#[tokio::test]
+async fn byom_asr_empty_state_guard_persona_and_restore_remove() {
+    let dir = unique_temp_dir("asr-byom");
+    let empty_bundled = dir.join("bundled");
+    let empty_user = dir.join("user");
+    let custom = dir.join("custom");
+    std::fs::create_dir_all(&empty_bundled).unwrap();
+    std::fs::create_dir_all(&empty_user).unwrap();
+    std::fs::create_dir_all(&custom).unwrap();
+
+    let pipeline = VoicePipeline::with_asr_dirs(Some(empty_bundled), Some(empty_user));
+    assert!(pipeline.active_asr_model().is_none());
+    assert!(!pipeline.is_male_voice());
+    pipeline.set_voice_persona(true);
+    assert!(pipeline.is_male_voice());
+    pipeline.set_voice_persona(false);
+    assert!(!pipeline.is_male_voice());
+
+    // Starting mic without an active ASR model returns ModelNotFound BEFORE opening audio capture.
+    let err = pipeline
+        .start_listening(Box::new(|_| {}))
+        .await
+        .expect_err("listening without ASR model must fail with ModelNotFound");
+    match err {
+        SoulError::ModelNotFound(msg) => {
+            assert!(msg.contains(".bin"));
+            assert!(msg.contains("Models"));
+        }
+        other => panic!("expected SoulError::ModelNotFound, got {other:?}"),
+    }
+
+    // Restore valid .bin models while skipping invalid/missing entries.
+    let valid_bin = custom.join("ggml-tiny.bin");
+    let invalid_bin = custom.join("bad.bin");
+    let missing_bin = custom.join("missing.bin");
+    let mut valid_bytes = b"lmgg".to_vec();
+    valid_bytes.extend_from_slice(&[0u8; 1024]);
+    std::fs::write(&valid_bin, valid_bytes).unwrap();
+    std::fs::write(&invalid_bin, b"NOPE").unwrap();
+
+    let restored = pipeline.restore_custom_models(&[
+        (valid_bin.clone(), Some("Whisper Tiny".to_string())),
+        (invalid_bin, None),
+        (missing_bin, None),
+    ]);
+    assert_eq!(restored.len(), 1);
+    assert_eq!(pipeline.scan_asr_models().unwrap().len(), 1);
+    assert!(pipeline.active_asr_model().is_none());
+
+    // Remove by ID.
+    assert!(pipeline.remove_custom_model(&restored[0].id).unwrap());
+    assert!(!pipeline.remove_custom_model(&restored[0].id).unwrap());
+    assert!(pipeline.scan_asr_models().unwrap().is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

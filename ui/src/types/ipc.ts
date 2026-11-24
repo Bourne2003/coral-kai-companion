@@ -4,8 +4,11 @@ export const IPC_EVENTS = {
   CHAT_TOKEN: "chat://token",
   AVATAR_EMOTION: "avatar://emotion",
   AVATAR_VISEME: "avatar://viseme",
+  AVATAR_STATE: "avatar://state",
   VOICE_TRANSCRIPT: "voice://transcript",
   SYSTEM_RAM: "system://ram",
+  PROACTIVE_MESSAGE: "companion://proactive",
+  INNER_LOOP_STATUS: "companion://inner-loop",
 } as const;
 
 export type SoulError =
@@ -111,6 +114,8 @@ export interface MemoryRetrievalContext {
 
 export type ModelKind = "llm" | "asr" | "embed" | "live2d";
 
+export type CharacterId = "coral" | "kai";
+
 export type ModelSource = "bundled" | "userData" | "custom";
 
 export type RamSafetyTier = "safe8Gb" | "tight8Gb" | "recommended16GbPlus";
@@ -154,6 +159,144 @@ export interface TranscriptEvent {
   language: string;
   isFinal: boolean;
   timestampMs: number;
+}
+
+export interface EmotionDecayEntry {
+  tag: EmotionTag;
+  intensity: number;
+  baseline: number;
+  halfLifeMinutes: number;
+  updatedAtMs: number;
+}
+
+export interface EmotionProfileState {
+  characterId: CharacterId;
+  dominant: EmotionTag;
+  dominantIntensity: number;
+  emotions: EmotionDecayEntry[];
+  computedAtMs: number;
+}
+
+export interface DiaryEntry {
+  id: string;
+  characterId: CharacterId;
+  entryDate: string;
+  title: string;
+  content: string;
+  mood: EmotionTag;
+  source: string;
+  mergedCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PersonaBio {
+  characterId: CharacterId;
+  displayName: string;
+  traits: string;
+  selfReflection: string;
+  favoriteTopics: string;
+  updatedAt: number;
+}
+
+export interface UserProfile {
+  displayName: string;
+  timezone: string;
+  location: string;
+  notes: string;
+  updatedAt: number;
+}
+
+export type AvatarLogicalState = "idle" | "think" | "write" | "speak" | "sleep";
+
+export interface AvatarSnapshot {
+  characterId: CharacterId;
+  logicalState: AvatarLogicalState;
+  emotion: EmotionState;
+  emotionProfile: EmotionProfileState;
+  eyesClosed: boolean;
+  autoBlinkEnabled: boolean;
+  gazeTrackingEnabled: boolean;
+  viseme: VisemeFrame;
+  updatedAtMs: number;
+}
+
+export interface InnerLoopConfig {
+  enabled: boolean;
+  intervalMinutes: number;
+  proactiveOutreachEnabled: boolean;
+  quietHoursStart: number | null;
+  quietHoursEnd: number | null;
+  minIdleSeconds: number;
+}
+
+export type InnerLoopBeatKind =
+  | "memoryReflection"
+  | "emotionUpdate"
+  | "proactiveOutreach"
+  | "skippedNoModel"
+  | "skippedBusy"
+  | "skippedLowRam"
+  | "skippedDisabled";
+
+export interface InnerLoopStatus {
+  config: InnerLoopConfig;
+  lastBeatAtMs: number | null;
+  lastBeatKind: InnerLoopBeatKind | null;
+  lastBeatSummary: string | null;
+  nextBeatAtMs: number | null;
+  totalBeats: number;
+}
+
+export interface ProactiveMessageEvent {
+  characterId: CharacterId;
+  content: string;
+  emotion: EmotionState;
+  reason: string;
+  timestampMs: number;
+}
+
+export interface ActionInvocation {
+  action: string;
+  params: Record<string, unknown>;
+}
+
+export interface ActionResult {
+  action: string;
+  pluginName: string;
+  success: boolean;
+  summary: string;
+  data: unknown | null;
+}
+
+export interface PluginInfo {
+  name: string;
+  description: string;
+  enabled: boolean;
+  builtin: boolean;
+  supportedActions: string[];
+}
+
+export interface McpServerConfig {
+  name: string;
+  transport: string;
+  command: string | null;
+  args: string[];
+  url: string | null;
+  enabled: boolean;
+  timeoutMs: number;
+}
+
+export interface McpConfig {
+  enabled: boolean;
+  configPath: string | null;
+  servers: McpServerConfig[];
+}
+
+export interface McpToolInfo {
+  serverName: string;
+  toolName: string;
+  description: string;
 }
 
 export interface IpcCommands {
@@ -240,6 +383,94 @@ export interface IpcCommands {
   load_live2d_folder: {
     args: { folderPath: string };
     result: ModelInfo;
+  };
+  set_character_persona: {
+    args: { character: CharacterId };
+    result: CharacterId;
+  };
+  switch_embed_model: {
+    args: { modelId: string };
+    result: ModelInfo;
+  };
+  remove_custom_model: {
+    args: { kind: ModelKind; modelId: string };
+    result: void;
+  };
+  get_emotion_profile: {
+    args: Record<string, never>;
+    result: EmotionProfileState;
+  };
+  list_diary_entries: {
+    args: { limit?: number | null };
+    result: DiaryEntry[];
+  };
+  add_diary_entry: {
+    args: { title: string; content: string; mood?: EmotionTag | null };
+    result: DiaryEntry;
+  };
+  get_persona_bio: {
+    args: Record<string, never>;
+    result: PersonaBio;
+  };
+  update_persona_bio: {
+    args: { bio: PersonaBio };
+    result: PersonaBio;
+  };
+  get_user_profile: {
+    args: Record<string, never>;
+    result: UserProfile;
+  };
+  update_user_profile: {
+    args: { profile: UserProfile };
+    result: UserProfile;
+  };
+  get_avatar_state: {
+    args: Record<string, never>;
+    result: AvatarSnapshot;
+  };
+  set_avatar_logical_state: {
+    args: {
+      logicalState: AvatarLogicalState;
+      emotion?: EmotionTag | null;
+      intensity?: number | null;
+    };
+    result: AvatarSnapshot;
+  };
+  get_inner_loop_status: {
+    args: Record<string, never>;
+    result: InnerLoopStatus;
+  };
+  update_inner_loop_config: {
+    args: { config: InnerLoopConfig };
+    result: InnerLoopStatus;
+  };
+  trigger_inner_loop_beat: {
+    args: Record<string, never>;
+    result: InnerLoopStatus;
+  };
+  list_plugins: {
+    args: Record<string, never>;
+    result: PluginInfo[];
+  };
+  set_plugin_enabled: {
+    args: { name: string; enabled: boolean };
+    result: PluginInfo[];
+  };
+  execute_plugin_action: {
+    args: { action: string; params?: Record<string, unknown> | null };
+    result: ActionResult;
+  };
+  get_mcp_config: {
+    args: Record<string, never>;
+    result: McpConfig;
+  };
+  update_mcp_config: {
+    args: { config: McpConfig };
+    result: McpConfig;
+  };
+  list_mcp_tools: {
+    args: Record<string, never>;
+    result: McpToolInfo[];
   };
 }
 

@@ -1,4 +1,10 @@
-import type { EmotionState, EmotionTag, VisemeFrame } from "../types/ipc";
+import type {
+  AvatarLogicalState,
+  AvatarSnapshot,
+  EmotionState,
+  EmotionTag,
+  VisemeFrame,
+} from "../types/ipc";
 import { createDefaultCubismParams, type CubismParams } from "./types";
 
 interface SpringState {
@@ -46,7 +52,7 @@ const EMOTION_POSES: Record<EmotionTag, EmotionExpressionPose> = {
   },
   joy: {
     eyeOpenBase: 0.96,
-    eyeSmile: 0.72,
+    eyeSmile: 0.92,
     browLY: 0.36,
     browRY: 0.36,
     browLAngle: 0.18,
@@ -212,6 +218,10 @@ export class AvatarMotionController {
 
   private currentEmotion: EmotionTag = "neutral";
   private currentIntensity = 0.55;
+  private logicalState: AvatarLogicalState = "idle";
+  private snapshotEyesClosed = false;
+  private autoBlinkEnabled = true;
+  private gazeTrackingEnabled = true;
   private fromPose: EmotionExpressionPose = { ...EMOTION_POSES.neutral };
   private toPose: EmotionExpressionPose = { ...EMOTION_POSES.neutral };
   private blendedPose: EmotionExpressionPose = { ...EMOTION_POSES.neutral };
@@ -253,6 +263,36 @@ export class AvatarMotionController {
   private springAccessory: SpringState = { value: 0, velocity: 0 };
   private springTorsoX: SpringState = { value: 0, velocity: 0 };
   private springAhoge: SpringState = { value: 0, velocity: 0 };
+
+  applyAvatarSnapshot(snapshot: AvatarSnapshot): void {
+    this.logicalState = snapshot.logicalState ?? "idle";
+    this.snapshotEyesClosed = Boolean(snapshot.eyesClosed);
+    this.autoBlinkEnabled = Boolean(snapshot.autoBlinkEnabled);
+    this.gazeTrackingEnabled = Boolean(snapshot.gazeTrackingEnabled);
+    this.setEmotion(snapshot.emotion);
+
+    if (this.logicalState === "sleep") {
+      this.clearViseme();
+    } else if (
+      snapshot.viseme &&
+      (snapshot.viseme.mouthOpenY > 0.02 || snapshot.viseme.energy > 0.02)
+    ) {
+      this.pushViseme(snapshot.viseme, performance.now());
+    }
+  }
+
+  getLogicalState(): AvatarLogicalState {
+    return this.logicalState;
+  }
+
+  isOcularMotionPaused(): boolean {
+    return (
+      this.snapshotEyesClosed ||
+      !this.autoBlinkEnabled ||
+      this.logicalState === "sleep" ||
+      this.blendedPose.eyeSmile > 0.65
+    );
+  }
 
   setEmotion(state: EmotionState): void {
     const tag = state.tag in EMOTION_POSES ? state.tag : "neutral";
@@ -303,7 +343,9 @@ export class AvatarMotionController {
   setPointerLook(normX: number, normY: number, nowMs: number): void {
     this.pointerNormX = clamp(normX, -1, 1);
     this.pointerNormY = clamp(normY, -1, 1);
-    this.pointerActiveUntilMs = nowMs + 4200;
+    if (!this.isOcularMotionPaused() && this.gazeTrackingEnabled) {
+      this.pointerActiveUntilMs = nowMs + 4200;
+    }
   }
 
   pushViseme(frame: VisemeFrame, nowMs: number): void {
@@ -349,70 +391,151 @@ export class AvatarMotionController {
     bp.tearSheen = lerp(fp.tearSheen, tp.tearSheen, e);
     bp.ahogeLift = lerp(fp.ahogeLift, tp.ahogeLift, e);
 
-    // 2. Natural blinking (2.5 - 6.0s intervals + occasional double blink)
-    if (this.blinkElapsedSec < 0 && nowMs >= this.nextBlinkAtMs) {
-      this.blinkElapsedSec = 0;
-      this.doubleBlinkPending = Math.random() < 0.2;
+    // Logical state pose offsets (think / write / speak / sleep)
+    const isSleeping = this.logicalState === "sleep";
+    const isThinking = this.logicalState === "think";
+    const isWriting = this.logicalState === "write";
+    const isSpeakingState = this.logicalState === "speak";
+
+    let stateHeadYaw = 0;
+    let stateHeadPitch = 0;
+    let stateHeadTilt = 0;
+    let stateGazeBiasX = 0;
+    let stateGazeBiasY = 0;
+    let stateBrowLY = 0;
+    let stateBrowRY = 0;
+    let stateAhogeLift = 0;
+
+    if (isThinking) {
+      stateHeadTilt = 6.2;
+      stateHeadPitch = 2.6;
+      stateHeadYaw = 4.4;
+      stateGazeBiasX = 0.34;
+      stateGazeBiasY = 0.28;
+      stateBrowLY = 0.22;
+      stateBrowRY = -0.1;
+      stateAhogeLift = 0.28;
+    } else if (isWriting) {
+      const penNod = Math.sin(tSec * 4.4) * 1.45 + Math.sin(tSec * 8.8) * 0.45;
+      stateHeadPitch = -6.2 + penNod;
+      stateHeadTilt = -3.4 + Math.sin(tSec * 2.2) * 0.75;
+      stateHeadYaw = 3.2;
+      stateGazeBiasX = 0.12;
+      stateGazeBiasY = -0.34;
+      stateBrowLY = -0.08;
+      stateBrowRY = -0.08;
+    } else if (isSleeping) {
+      stateHeadPitch = -4.6;
+      stateHeadTilt = -5.2;
     }
 
+    // HARD INVARIANT: Pause blinking AND pause gaze tracking + saccades whenever eyes are closed
+    // (`eyesClosed === true`, `!autoBlinkEnabled`, `logicalState === "sleep"`, or `eyeSmile > 0.65`).
+    const eyesForcedClosed = this.snapshotEyesClosed || isSleeping;
+    const suppressBlinkAndGaze =
+      eyesForcedClosed || !this.autoBlinkEnabled || bp.eyeSmile > 0.65;
+    const pauseGaze = suppressBlinkAndGaze || !this.gazeTrackingEnabled;
+
+    // 2. Natural blinking (paused immediately when suppressBlinkAndGaze is true)
     let blinkFactor = 1;
-    if (this.blinkElapsedSec >= 0) {
-      this.blinkElapsedSec += dtSec;
-      const p = this.blinkElapsedSec / this.blinkDurationSec;
-      if (p >= 1) {
-        if (this.doubleBlinkPending) {
-          this.doubleBlinkPending = false;
-          this.blinkElapsedSec = -0.075; // brief 75ms pause before second blink
-          this.nextBlinkAtMs = nowMs + 75;
+    if (suppressBlinkAndGaze) {
+      // Hold countdown in place without advancing/triggering blink timers
+      this.nextBlinkAtMs += dtMs;
+      this.blinkElapsedSec = -1;
+      this.doubleBlinkPending = false;
+      blinkFactor = eyesForcedClosed ? 0 : 1;
+    } else {
+      if (this.blinkElapsedSec < 0 && nowMs >= this.nextBlinkAtMs) {
+        this.blinkElapsedSec = 0;
+        this.doubleBlinkPending = Math.random() < 0.2;
+      }
+
+      if (this.blinkElapsedSec >= 0) {
+        this.blinkElapsedSec += dtSec;
+        const p = this.blinkElapsedSec / this.blinkDurationSec;
+        if (p >= 1) {
+          if (this.doubleBlinkPending) {
+            this.doubleBlinkPending = false;
+            this.blinkElapsedSec = -0.075; // brief 75ms pause before second blink
+            this.nextBlinkAtMs = nowMs + 75;
+          } else {
+            this.blinkElapsedSec = -1;
+            this.nextBlinkAtMs = nowMs + 2500 + Math.random() * 3500;
+          }
         } else {
-          this.blinkElapsedSec = -1;
-          this.nextBlinkAtMs = nowMs + 2500 + Math.random() * 3500;
+          // Asymmetric close (fast 35%) -> open (smooth 65%)
+          blinkFactor = p < 0.35 ? 1 - p / 0.35 : (p - 0.35) / 0.65;
+          blinkFactor = clamp(blinkFactor, 0, 1);
         }
-      } else {
-        // Asymmetric close (fast 35%) -> open (smooth 65%)
-        blinkFactor = p < 0.35 ? 1 - p / 0.35 : (p - 0.35) / 0.65;
-        blinkFactor = clamp(blinkFactor, 0, 1);
       }
     }
 
-    // 3. Eye saccades + pointer gaze tracking
-    if (nowMs >= this.nextSaccadeAtMs) {
-      this.saccadeX = (Math.random() - 0.5) * 0.24;
-      this.saccadeY = (Math.random() - 0.5) * 0.16;
-      this.nextSaccadeAtMs = nowMs + 1400 + Math.random() * 2200;
+    // 3. Eye saccades + pointer gaze tracking (held cleanly at neutral when paused)
+    if (pauseGaze) {
+      this.nextSaccadeAtMs += dtMs;
+      this.saccadeX = 0;
+      this.saccadeY = 0;
+      this.smoothGazeX = 0;
+      this.smoothGazeY = 0;
+    } else {
+      if (nowMs >= this.nextSaccadeAtMs) {
+        this.saccadeX = (Math.random() - 0.5) * 0.24;
+        this.saccadeY = (Math.random() - 0.5) * 0.16;
+        this.nextSaccadeAtMs = nowMs + 1400 + Math.random() * 2200;
+      }
+
+      const pointerWeight = nowMs < this.pointerActiveUntilMs ? 0.78 : 0.12;
+      const desiredGazeX = clamp(
+        this.pointerNormX * pointerWeight +
+          this.saccadeX * (1 - pointerWeight * 0.6) +
+          bp.gazeBiasX +
+          stateGazeBiasX,
+        -1,
+        1
+      );
+      const desiredGazeY = clamp(
+        this.pointerNormY * pointerWeight +
+          this.saccadeY * (1 - pointerWeight * 0.6) +
+          bp.gazeBiasY +
+          stateGazeBiasY,
+        -1,
+        1
+      );
+
+      const gazeFollowRate = 1 - Math.exp(-dtSec * 14);
+      this.smoothGazeX = lerp(this.smoothGazeX, desiredGazeX, gazeFollowRate);
+      this.smoothGazeY = lerp(this.smoothGazeY, desiredGazeY, gazeFollowRate);
     }
 
-    const pointerWeight = nowMs < this.pointerActiveUntilMs ? 0.78 : 0.12;
-    const desiredGazeX = clamp(
-      this.pointerNormX * pointerWeight + this.saccadeX * (1 - pointerWeight * 0.6) + bp.gazeBiasX,
-      -1,
-      1
-    );
-    const desiredGazeY = clamp(
-      this.pointerNormY * pointerWeight + this.saccadeY * (1 - pointerWeight * 0.6) + bp.gazeBiasY,
-      -1,
-      1
-    );
-
-    const gazeFollowRate = 1 - Math.exp(-dtSec * 14);
-    this.smoothGazeX = lerp(this.smoothGazeX, desiredGazeX, gazeFollowRate);
-    this.smoothGazeY = lerp(this.smoothGazeY, desiredGazeY, gazeFollowRate);
-
-    // 4. Sinusoidal breathing & idle sway
-    const breathPhase = Math.sin(tSec * ((Math.PI * 2) / 3.9));
+    // 4. Sinusoidal breathing & idle sway (slower, deeper breathing in sleep)
+    const breathPeriod = isSleeping ? 5.8 : 3.9;
+    const breathPhase = Math.sin(tSec * ((Math.PI * 2) / breathPeriod));
     const breathNorm = 0.5 + 0.5 * breathPhase;
-    const idleSwayX = Math.sin(tSec * 0.85) * 1.4;
-    const idleSwayZ = Math.cos(tSec * 0.62) * 1.1;
+    const swayScale = isSleeping ? 0.25 : 1.0;
+    const idleSwayX = Math.sin(tSec * 0.85) * 1.4 * swayScale;
+    const idleSwayZ = Math.cos(tSec * 0.62) * 1.1 * swayScale;
 
     // 5. Lip-sync visemes with smooth attack/release
-    const isSpeaking = this.lastVisemeAtMs > 0 && nowMs - this.lastVisemeAtMs < 240;
-    const targetOpen = isSpeaking ? this.targetMouthOpenY : bp.mouthRestOpen;
-    const targetForm = isSpeaking
+    const isSpeakingViseme = this.lastVisemeAtMs > 0 && nowMs - this.lastVisemeAtMs < 240;
+    const targetOpen = isSleeping
+      ? 0
+      : isSpeakingViseme
+      ? this.targetMouthOpenY
+      : bp.mouthRestOpen;
+    const targetForm = isSleeping
+      ? 0.08
+      : isSpeakingViseme
       ? lerp(bp.mouthForm, this.targetMouthForm, 0.75)
       : bp.mouthForm;
-    const targetEnergy = isSpeaking ? this.targetSpeechEnergy : 0;
+    const targetEnergy = isSleeping
+      ? 0
+      : isSpeakingViseme
+      ? this.targetSpeechEnergy
+      : isSpeakingState
+      ? 0.24
+      : 0;
 
-    const mouthRate = 1 - Math.exp(-dtSec * (isSpeaking ? 26 : 14));
+    const mouthRate = 1 - Math.exp(-dtSec * (isSpeakingViseme ? 26 : 14));
     this.smoothMouthOpenY = lerp(this.smoothMouthOpenY, targetOpen, mouthRate);
     this.smoothMouthForm = lerp(this.smoothMouthForm, targetForm, mouthRate);
     this.smoothSpeechEnergy = lerp(this.smoothSpeechEnergy, targetEnergy, mouthRate);
@@ -422,17 +545,21 @@ export class AvatarMotionController {
       this.smoothSpeechEnergy * Math.sin(tSec * 11.5) * 1.8 +
       this.smoothSpeechEnergy * 1.2;
     const targetHeadX = clamp(
-      bp.headYawX + this.smoothGazeX * 7.5 + idleSwayX,
+      (isSleeping ? 0 : bp.headYawX) + stateHeadYaw + this.smoothGazeX * 7.5 + idleSwayX,
       -26,
       26
     );
     const targetHeadY = clamp(
-      bp.headPitchY + this.smoothGazeY * 6.0 + breathPhase * 1.1 - speechNod * 0.35,
+      (isSleeping ? 0 : bp.headPitchY) +
+        stateHeadPitch +
+        this.smoothGazeY * 6.0 +
+        breathPhase * (isSleeping ? 1.65 : 1.1) -
+        speechNod * 0.35,
       -24,
       24
     );
     const targetHeadZ = clamp(
-      bp.headTiltZ + this.smoothGazeX * 2.4 + idleSwayZ,
+      (isSleeping ? 0 : bp.headTiltZ) + stateHeadTilt + this.smoothGazeX * 2.4 + idleSwayZ,
       -22,
       22
     );
@@ -441,7 +568,8 @@ export class AvatarMotionController {
     const headY = stepSpring(this.springHeadY, targetHeadY, 105, 14, dtSec);
     const headZ = stepSpring(this.springHeadZ, targetHeadZ, 88, 13, dtSec);
 
-    const ambientBreeze = Math.sin(tSec * 1.65) * 0.06 + Math.cos(tSec * 2.4) * 0.03;
+    const ambientBreeze =
+      (Math.sin(tSec * 1.65) * 0.06 + Math.cos(tSec * 2.4) * 0.03) * (isSleeping ? 0.45 : 1);
     const hairFrontTarget = clamp(-headZ * 0.032 - headX * 0.014 + ambientBreeze, -1, 1);
     const hairSideTarget = clamp(-headZ * 0.045 - headX * 0.018 + ambientBreeze * 1.4, -1, 1);
     const hairBackTarget = clamp(-headZ * 0.055 - headX * 0.022 + ambientBreeze * 1.6, -1, 1);
@@ -459,7 +587,10 @@ export class AvatarMotionController {
     const torsoX = stepSpring(this.springTorsoX, torsoXTarget, 54, 9.5, dtSec);
     const ahoge = stepSpring(
       this.springAhoge,
-      bp.ahogeLift + ambientBreeze * 1.8 + this.smoothSpeechEnergy * 0.2,
+      (isSleeping ? -0.25 : bp.ahogeLift) +
+        stateAhogeLift +
+        ambientBreeze * 1.8 +
+        this.smoothSpeechEnergy * 0.2,
       82,
       5.5,
       dtSec
@@ -478,14 +609,14 @@ export class AvatarMotionController {
     p.ParamAngleX = headX;
     p.ParamAngleY = headY;
     p.ParamAngleZ = headZ;
-    p.ParamEyeLOpen = clamp(bp.eyeOpenBase * blinkFactor, 0, 1.3);
-    p.ParamEyeROpen = clamp(bp.eyeOpenBase * blinkFactor, 0, 1.3);
-    p.ParamEyeLSmile = bp.eyeSmile;
-    p.ParamEyeRSmile = bp.eyeSmile;
+    p.ParamEyeLOpen = eyesForcedClosed ? 0 : clamp(bp.eyeOpenBase * blinkFactor, 0, 1.3);
+    p.ParamEyeROpen = eyesForcedClosed ? 0 : clamp(bp.eyeOpenBase * blinkFactor, 0, 1.3);
+    p.ParamEyeLSmile = eyesForcedClosed ? 0 : bp.eyeSmile;
+    p.ParamEyeRSmile = eyesForcedClosed ? 0 : bp.eyeSmile;
     p.ParamEyeBallX = this.smoothGazeX;
     p.ParamEyeBallY = this.smoothGazeY;
-    p.ParamBrowLY = clamp(bp.browLY + this.smoothGazeY * 0.12, -1, 1);
-    p.ParamBrowRY = clamp(bp.browRY + this.smoothGazeY * 0.12, -1, 1);
+    p.ParamBrowLY = clamp(bp.browLY + stateBrowLY + this.smoothGazeY * 0.12, -1, 1);
+    p.ParamBrowRY = clamp(bp.browRY + stateBrowRY + this.smoothGazeY * 0.12, -1, 1);
     p.ParamBrowLAngle = bp.browLAngle;
     p.ParamBrowRAngle = bp.browRAngle;
     p.ParamMouthOpenY = this.smoothMouthOpenY;
@@ -493,13 +624,13 @@ export class AvatarMotionController {
     p.ParamCheek = clamp(bp.cheek + blushPulse, 0, 1);
     p.ParamBreath = breathNorm;
     p.ParamBodyAngleX = torsoX;
-    p.ParamBodyAngleY = breathPhase * 1.6;
+    p.ParamBodyAngleY = breathPhase * (isSleeping ? 2.4 : 1.6);
     p.ParamBodyAngleZ = headZ * 0.25;
     p.ParamHairFront = hairFront;
     p.ParamHairSide = hairSide;
     p.ParamHairBack = hairBack;
     p.ParamAccessorySway = accessory;
-    p.ParamTearSheen = bp.tearSheen;
+    p.ParamTearSheen = isSleeping ? 0 : bp.tearSheen;
     p.speechEnergy = this.smoothSpeechEnergy;
     p.ahogeLift = ahoge;
 
