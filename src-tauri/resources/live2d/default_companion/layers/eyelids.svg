@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Left Upper Eyelash & Wing -->
+  <path d="M 303 347
+           C 312 325, 338 320, 366 332
+           C 368 334, 369 338, 366 339
+           C 340 328, 316 332, 307 352
+           C 304 352, 300 349, 297 343
+           C 300 344, 302 346, 303 347 Z"
+        fill="#351E1C"/>
+  <!-- Left Eyelid Crease & Subtle Lower Lash -->
+  <path d="M 314 320 C 328 313, 348 314, 362 321" fill="none" stroke="#9B6E63" stroke-width="1.8" stroke-linecap="round" opacity="0.75"/>
+  <path d="M 318 379 C 328 383, 344 384, 354 380" fill="none" stroke="#6C4640" stroke-width="1.6" stroke-linecap="round" opacity="0.55"/>
+
+  <!-- Right Upper Eyelash & Wing -->
+  <path d="M 497 347
+           C 488 325, 462 320, 434 332
+           C 432 334, 431 338, 434 339
+           C 460 328, 484 332, 493 352
+           C 496 352, 500 349, 503 343
+           C 500 344, 498 346, 497 347 Z"
+        fill="#351E1C"/>
+  <!-- Right Eyelid Crease & Subtle Lower Lash -->
+  <path d="M 486 320 C 472 313, 452 314, 438 321" fill="none" stroke="#9B6E63" stroke-width="1.8" stroke-linecap="round" opacity="0.75"/>
+  <path d="M 482 379 C 472 383, 456 384, 446 380" fill="none" stroke="#6C4640" stroke-width="1.6" stroke-linecap="round" opacity="0.55"/>
+</svg>

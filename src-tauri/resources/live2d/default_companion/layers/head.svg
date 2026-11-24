@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <defs>
+    <radialGradient id="hd_skin" cx="0.5" cy="0.42" r="0.58">
+      <stop offset="0%" stop-color="#FFF0E7"/>
+      <stop offset="68%" stop-color="#FFE4D6"/>
+      <stop offset="100%" stop-color="#F7CCBA"/>
+    </radialGradient>
+    <linearGradient id="hd_forehead_shadow" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#EAC0AE" stop-opacity="0.42"/>
+      <stop offset="100%" stop-color="#EAC0AE" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left & Right Ears -->
+  <path d="M 290 350 C 266 346, 260 384, 274 405 C 282 416, 294 414, 298 402 Z"
+        fill="#FAD7C6" stroke="#6C4640" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M 277 368 C 272 378, 276 392, 286 395" fill="none" stroke="#C99281" stroke-width="2" stroke-linecap="round"/>
+
+  <path d="M 510 350 C 534 346, 540 384, 526 405 C 518 416, 506 414, 502 402 Z"
+        fill="#FAD7C6" stroke="#6C4640" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M 523 368 C 528 378, 524 392, 514 395" fill="none" stroke="#C99281" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Main Anime Head & Soft Jawline -->
+  <path d="M 284 342
+           C 281 402, 304 452, 355 476
+           C 380 487, 392 490, 400 490
+           C 408 490, 420 487, 445 476
+           C 496 452, 519 402, 516 342
+           C 516 250, 466 204, 400 204
+           C 334 204, 284 250, 284 342 Z"
+        fill="url(#hd_skin)" stroke="#6C4640" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- Subtle bangs shadow along upper forehead -->
+  <path d="M 287 320 C 296 244, 344 206, 400 206 C 456 206, 504 244, 513 320 C 482 296, 444 294, 400 310 C 356 294, 318 296, 287 320 Z"
+        fill="url(#hd_forehead_shadow)"/>
+
+  <!-- Delicate nose shadow & highlight -->
+  <path d="M 398 394 C 396 399, 398 403, 402 404" fill="none" stroke="#C48777" stroke-width="2.2" stroke-linecap="round"/>
+  <ellipse cx="403" cy="396" rx="2" ry="4" fill="#FFF8F4" opacity="0.6"/>
+</svg>

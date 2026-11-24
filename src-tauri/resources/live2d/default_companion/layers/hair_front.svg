@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <defs>
+    <linearGradient id="hf_base" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#64423B"/>
+      <stop offset="50%" stop-color="#4B302B"/>
+      <stop offset="100%" stop-color="#38221E"/>
+    </linearGradient>
+    <linearGradient id="hf_shine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#C89886" stop-opacity="0"/>
+      <stop offset="28%" stop-color="#DBA996" stop-opacity="0.44"/>
+      <stop offset="50%" stop-color="#F0C6B4" stop-opacity="0.56"/>
+      <stop offset="72%" stop-color="#DBA996" stop-opacity="0.44"/>
+      <stop offset="100%" stop-color="#C89886" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Playful crown ahoge curl -->
+  <path d="M 397 184 C 390 150, 412 130, 438 145 C 421 147, 410 162, 408 184 Z"
+        fill="url(#hf_base)" stroke="#291714" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Left & right cheek-framing side locks (tucked smoothly under outer bangs) -->
+  <path d="M 274 260
+           C 246 312, 236 392, 250 480
+           C 256 516, 272 542, 286 550
+           C 278 514, 276 474, 282 428
+           C 286 384, 288 342, 296 296 Z"
+        fill="url(#hf_base)" stroke="#291714" stroke-width="3" stroke-linejoin="round"/>
+
+  <path d="M 526 260
+           C 554 312, 564 392, 550 480
+           C 544 516, 528 542, 514 550
+           C 522 514, 524 474, 518 428
+           C 514 384, 512 342, 504 296 Z"
+        fill="url(#hf_base)" stroke="#291714" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- Top crown & soft tapered anime bangs (swept cleanly above eyes) -->
+  <path d="M 400 176
+           C 316 176, 254 226, 245 314
+           C 258 292, 272 280, 284 276
+           C 282 302, 290 322, 302 332
+           C 304 306, 312 288, 326 276
+           C 327 302, 334 316, 345 322
+           C 349 298, 360 278, 376 260
+           C 378 292, 386 316, 398 330
+           C 407 314, 413 292, 419 268
+           C 425 294, 435 314, 449 324
+           C 450 302, 458 282, 469 270
+           C 474 298, 482 316, 496 328
+           C 498 302, 505 284, 515 276
+           C 526 282, 540 294, 555 314
+           C 546 226, 484 176, 400 176 Z"
+        fill="url(#hf_base)" stroke="#291714" stroke-width="3.2" stroke-linejoin="round"/>
+
+  <!-- Glossy anime hair specular arc -->
+  <path d="M 284 246 Q 340 220 400 226 Q 460 220 516 246 Q 512 260 496 258 Q 452 238 400 244 Q 348 238 304 258 Q 288 260 284 246 Z"
+        fill="url(#hf_shine)"/>
+
+  <!-- Subtle hair parting & delicate inner strand lines -->
+  <path d="M 400 184 C 398 206, 398 228, 394 252" fill="none" stroke="#2D1A17" stroke-width="2.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M 352 224 C 346 248, 343 272, 344 294" fill="none" stroke="#2D1A17" stroke-width="1.6" stroke-linecap="round" opacity="0.35"/>
+  <path d="M 450 224 C 456 248, 459 272, 458 294" fill="none" stroke="#2D1A17" stroke-width="1.6" stroke-linecap="round" opacity="0.35"/>
+</svg>

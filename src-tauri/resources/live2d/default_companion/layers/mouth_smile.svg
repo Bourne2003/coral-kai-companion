@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <defs>
+    <linearGradient id="ms_inside" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#8A3442"/>
+      <stop offset="100%" stop-color="#BA5566"/>
+    </linearGradient>
+  </defs>
+  <!-- Cheerful joyful open crescent smile -->
+  <path d="M 378 429 Q 400 435 422 429 C 420 447, 410 455, 400 455 C 390 455, 380 447, 378 429 Z"
+        fill="url(#ms_inside)" stroke="#753D3E" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M 382 431 Q 400 436 418 431 L 415 436 Q 400 439 385 436 Z" fill="#FFFDFD"/>
+  <ellipse cx="400" cy="449" rx="11" ry="5" fill="#F28A97"/>
+</svg>
