@@ -1,0 +1,25 @@
+# Build artifacts & dependencies
+target/
+**/target/
+node_modules/
+ui/dist/
+Cargo.lock
+src-tauri/gen/
+
+# OS junk
+.DS_Store
+
+# Runtime SQLite databases
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Large downloaded model binaries (keep manifests, tokenizer/config JSON, and .gitkeep tracked)
+src-tauri/resources/models/**/*.gguf
+src-tauri/resources/models/**/*.bin
+src-tauri/resources/models/**/*.onnx
+!src-tauri/resources/models/**/.gitkeep
+!src-tauri/resources/models/**/manifest.json
+!src-tauri/resources/models/**/*.json
+!scripts/**
+!src-tauri/resources/live2d/**
