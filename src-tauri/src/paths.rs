@@ -448,4 +448,49 @@ mod tests {
         assert_eq!(store.embedder_kind(), "onnx");
         let _ = std::fs::remove_file(&db_path);
     }
+
+    #[tokio::test]
+    #[ignore = "exercises co-resident Metal Whisper + Metal Llama + ONNX in one binary"]
+    async fn co_resident_metal_whisper_and_llama_smoke_test() {
+        use shared_types::{BrainEngine, MemoryRetrievalContext, VoiceEngine};
+
+        let res_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let llm_dir = res_root.join("models/llm");
+        let asr_dir = res_root.join("models/asr");
+        let embed_dir = res_root.join("models/embed");
+        let empty_user = std::env::temp_dir().join("soulmate2d_smoke_user");
+
+        let db_path = std::env::temp_dir().join(format!(
+            "soulmate2d_coresident_{}.sqlite",
+            shared_types::new_id()
+        ));
+        let memory = soul_memory::SoulMemoryStore::open(&db_path, Some(&embed_dir)).unwrap();
+        assert_eq!(memory.embedder_kind(), "onnx");
+
+        let voice = voice_io::VoicePipeline::with_asr_dirs(Some(asr_dir), Some(empty_user.clone()));
+        let asr_models = voice.scan_asr_models().unwrap();
+        voice.load_asr_model(&asr_models[0]).await.unwrap();
+        let silence = vec![0.0_f32; 16_000];
+        let _ = voice.transcribe_pcm(silence).await.unwrap();
+
+        let brain = brain_llm::LlmBrainManager::with_dirs(llm_dir, empty_user);
+        let llm_models = brain.scan_models().unwrap();
+        brain.hot_swap(&llm_models[0]).await.unwrap();
+
+        let reply = brain
+            .generate_reply(
+                "สวัสดีมีนา",
+                &[],
+                &MemoryRetrievalContext::default(),
+                Box::new(|_| {}),
+            )
+            .await
+            .unwrap();
+        println!("Co-resident reply: {:?} -> {}", reply.emotion.tag, reply.turn.content);
+        assert!(!reply.turn.content.is_empty());
+
+        brain.unload_model().await.unwrap();
+        voice.unload_asr_model().await.unwrap();
+        let _ = std::fs::remove_file(&db_path);
+    }
 }

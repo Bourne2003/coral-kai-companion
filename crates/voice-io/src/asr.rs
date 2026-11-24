@@ -1,8 +1,9 @@
 use std::collections::HashSet;
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Once, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use serde::Deserialize;
 use shared_types::{
@@ -10,9 +11,175 @@ use shared_types::{
     TranscriptEvent, now_timestamp_ms,
 };
 use tracing::{debug, info};
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-static WHISPER_LOGGING_INIT: Once = Once::new();
+#[repr(C)]
+struct WhisperLoadResult {
+    ctx: *mut c_void,
+    err_ptr: *mut c_char,
+}
+
+#[repr(C)]
+struct WhisperTranscribeResult {
+    status: i32,
+    text_ptr: *mut c_char,
+    lang_ptr: *mut c_char,
+    err_ptr: *mut c_char,
+}
+
+type FnAbiVersion = unsafe extern "C" fn() -> u32;
+type FnLoad = unsafe extern "C" fn(*const c_char, bool) -> WhisperLoadResult;
+type FnFreeLoadError = unsafe extern "C" fn(*mut c_char);
+type FnFree = unsafe extern "C" fn(*mut c_void);
+type FnTranscribe =
+    unsafe extern "C" fn(*const c_void, *const f32, usize, u8) -> WhisperTranscribeResult;
+type FnFreeResult = unsafe extern "C" fn(WhisperTranscribeResult);
+
+struct WhisperBridgeApi {
+    _lib: Box<dyn std::any::Any + Send + Sync>,
+    load: FnLoad,
+    free_load_error: FnFreeLoadError,
+    free: FnFree,
+    transcribe: FnTranscribe,
+    free_result: FnFreeResult,
+}
+
+static WHISPER_BRIDGE: OnceLock<Result<WhisperBridgeApi, String>> = OnceLock::new();
+
+fn load_bridge_api(bundled_asr_dir: Option<&Path>) -> SoulResult<&'static WhisperBridgeApi> {
+    let res = WHISPER_BRIDGE.get_or_init(|| init_bridge_api(bundled_asr_dir));
+    match res {
+        Ok(api) => Ok(api),
+        Err(msg) => Err(SoulError::Voice(msg.clone())),
+    }
+}
+
+fn init_bridge_api(bundled_asr_dir: Option<&Path>) -> Result<WhisperBridgeApi, String> {
+    let path = find_whisper_bridge_dylib(bundled_asr_dir).ok_or_else(|| {
+        "libwhisper_bridge.dylib not found (build whisper-bridge or place it in bundled ASR dir)"
+            .to_string()
+    })?;
+
+    #[cfg(unix)]
+    let lib = unsafe {
+        libloading::os::unix::Library::open(
+            Some(&path),
+            libloading::os::unix::RTLD_NOW | libloading::os::unix::RTLD_LOCAL,
+        )
+        .map_err(|e| format!("Failed to dlopen {}: {e}", path.display()))?
+    };
+
+    #[cfg(not(unix))]
+    let lib = unsafe {
+        libloading::Library::new(&path)
+            .map_err(|e| format!("Failed to load {}: {e}", path.display()))?
+    };
+
+    unsafe {
+        let abi_ver = lib
+            .get::<FnAbiVersion>(b"soulmate_whisper_abi_version\0")
+            .map_err(|e| format!("Missing soulmate_whisper_abi_version: {e}"))?;
+        let ver = abi_ver();
+        if ver != 1 {
+            return Err(format!("Unsupported whisper bridge ABI version: {ver}"));
+        }
+
+        let load: FnLoad = *lib
+            .get::<FnLoad>(b"soulmate_whisper_load\0")
+            .map_err(|e| format!("Missing soulmate_whisper_load: {e}"))?;
+        let free_load_error: FnFreeLoadError = *lib
+            .get::<FnFreeLoadError>(b"soulmate_whisper_free_load_error\0")
+            .map_err(|e| format!("Missing soulmate_whisper_free_load_error: {e}"))?;
+        let free: FnFree = *lib
+            .get::<FnFree>(b"soulmate_whisper_free\0")
+            .map_err(|e| format!("Missing soulmate_whisper_free: {e}"))?;
+        let transcribe: FnTranscribe = *lib
+            .get::<FnTranscribe>(b"soulmate_whisper_transcribe\0")
+            .map_err(|e| format!("Missing soulmate_whisper_transcribe: {e}"))?;
+        let free_result: FnFreeResult = *lib
+            .get::<FnFreeResult>(b"soulmate_whisper_free_result\0")
+            .map_err(|e| format!("Missing soulmate_whisper_free_result: {e}"))?;
+
+        Ok(WhisperBridgeApi {
+            _lib: Box::new(lib),
+            load,
+            free_load_error,
+            free,
+            transcribe,
+            free_result,
+        })
+    }
+}
+
+fn find_whisper_bridge_dylib(bundled_asr_dir: Option<&Path>) -> Option<PathBuf> {
+    if let Some(env_path) = std::env::var_os("SOULMATE2D_WHISPER_DYLIB") {
+        let p = PathBuf::from(env_path);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+
+    let dylib_name = if cfg!(target_os = "macos") {
+        "libwhisper_bridge.dylib"
+    } else if cfg!(target_os = "windows") {
+        "whisper_bridge.dll"
+    } else {
+        "libwhisper_bridge.so"
+    };
+
+    if let Some(dir) = bundled_asr_dir {
+        let candidate = dir.join(dylib_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(exe_dir) = exe.parent()
+    {
+        for dir in [
+            exe_dir.join("../Resources/resources/models/asr"),
+            exe_dir.join("../Resources"),
+            exe_dir.join("../Frameworks"),
+            exe_dir.to_path_buf(),
+            exe_dir.join(".."),
+        ] {
+            let candidate = dir.join(dylib_name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    for candidate in [
+        PathBuf::from("src-tauri/resources/models/asr").join(dylib_name),
+        PathBuf::from("resources/models/asr").join(dylib_name),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../src-tauri/resources/models/asr")
+            .join(dylib_name),
+    ] {
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+struct WhisperCtxHandle {
+    ptr: *mut c_void,
+    api: &'static WhisperBridgeApi,
+}
+
+unsafe impl Send for WhisperCtxHandle {}
+unsafe impl Sync for WhisperCtxHandle {}
+
+impl Drop for WhisperCtxHandle {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe { (self.api.free)(self.ptr) };
+        }
+    }
+}
 
 /// Minimum size (in bytes) for a valid Whisper GGML binary model header.
 const MIN_GGML_HEADER_BYTES: usize = 4;
@@ -43,7 +210,7 @@ struct AsrManifest {
 
 struct LoadedWhisper {
     info: ModelInfo,
-    ctx: Arc<WhisperContext>,
+    ctx: Arc<WhisperCtxHandle>,
 }
 
 /// Manages local Metal Whisper ASR model discovery, hot-swapping, and transcription.
@@ -63,9 +230,6 @@ impl Default for AsrManager {
 
 impl AsrManager {
     pub fn new(bundled_dir: Option<PathBuf>, user_dir: Option<PathBuf>) -> Self {
-        WHISPER_LOGGING_INIT.call_once(|| {
-            whisper_rs::install_logging_hooks();
-        });
         Self {
             bundled_dir: Mutex::new(bundled_dir.or_else(discover_default_bundled_asr_dir)),
             user_dir: Mutex::new(user_dir.or_else(discover_default_user_asr_dir)),
@@ -227,13 +391,37 @@ impl AsrManager {
             drop(old);
         }
 
+        let bundled_dir_snapshot = self.bundled_dir.lock().ok().and_then(|g| g.clone());
+        let api = load_bridge_api(bundled_dir_snapshot.as_deref())?;
+
         let load_path = path.clone();
         let ctx = tokio::task::spawn_blocking(move || {
-            let mut params = WhisperContextParameters::default();
-            params.use_gpu(true).flash_attn(false);
-            WhisperContext::new_with_params(&load_path, params)
-                .map(Arc::new)
-                .map_err(|e| SoulError::Voice(format!("Failed to initialize Whisper Metal: {e}")))
+            let path_str = load_path.to_str().ok_or_else(|| {
+                SoulError::InvalidInput(format!(
+                    "ASR model path is not valid UTF-8: {}",
+                    load_path.display()
+                ))
+            })?;
+            let c_path = CString::new(path_str).map_err(|_| {
+                SoulError::InvalidInput("ASR model path contains interior NUL byte".into())
+            })?;
+            let load_res = unsafe { (api.load)(c_path.as_ptr(), true) };
+            if load_res.ctx.is_null() {
+                let err_msg = if load_res.err_ptr.is_null() {
+                    "Unknown error initializing Whisper Metal".to_string()
+                } else {
+                    let s = unsafe { CStr::from_ptr(load_res.err_ptr) }
+                        .to_string_lossy()
+                        .into_owned();
+                    unsafe { (api.free_load_error)(load_res.err_ptr) };
+                    s
+                };
+                return Err(SoulError::Voice(err_msg));
+            }
+            Ok(Arc::new(WhisperCtxHandle {
+                ptr: load_res.ctx,
+                api,
+            }))
         })
         .await
         .map_err(|e| SoulError::Internal(format!("Whisper model loader task failed: {e}")))??;
@@ -298,7 +486,7 @@ impl AsrManager {
             .map_err(|e| SoulError::Internal(format!("Whisper task join failed: {e}")))?
     }
 
-    fn active_context(&self) -> SoulResult<Arc<WhisperContext>> {
+    fn active_context(&self) -> SoulResult<Arc<WhisperCtxHandle>> {
         let guard = self
             .loaded
             .read()
@@ -313,7 +501,7 @@ impl AsrManager {
 }
 
 fn transcribe_with_context(
-    ctx: &WhisperContext,
+    ctx: &WhisperCtxHandle,
     pcm_16k: &[f32],
     pref: LanguagePref,
 ) -> SoulResult<Option<TranscriptEvent>> {
@@ -321,96 +509,60 @@ fn transcribe_with_context(
         return Ok(None);
     }
 
-    let mut state = ctx
-        .create_state()
-        .map_err(|e| SoulError::Voice(format!("Failed to create Whisper state: {e}")))?;
+    let lang_code: u8 = match pref {
+        LanguagePref::Auto => 0,
+        LanguagePref::Thai => 1,
+        LanguagePref::English => 2,
+    };
 
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    let threads = std::thread::available_parallelism()
-        .map(|n| n.get().clamp(1, 4))
-        .unwrap_or(4) as std::ffi::c_int;
-    params.set_n_threads(threads);
-    params.set_translate(false);
-    params.set_no_context(true);
-    params.set_print_special(false);
-    params.set_print_progress(false);
-    params.set_print_realtime(false);
-    params.set_print_timestamps(false);
-    params.set_suppress_blank(true);
-    params.set_suppress_nst(true);
-    params.set_detect_language(false);
+    let res = unsafe { (ctx.api.transcribe)(ctx.ptr, pcm_16k.as_ptr(), pcm_16k.len(), lang_code) };
 
-    match pref {
-        LanguagePref::Thai => params.set_language(Some("th")),
-        LanguagePref::English => params.set_language(Some("en")),
-        LanguagePref::Auto => params.set_language(None),
-    }
-
-    state
-        .full(params, pcm_16k)
-        .map_err(|e| SoulError::Voice(format!("Whisper inference failed: {e}")))?;
-
-    let mut text = String::new();
-    for segment in state.as_iter() {
-        let seg = segment
-            .to_str_lossy()
-            .map_err(|e| SoulError::Voice(format!("Whisper segment decode failed: {e}")))?;
-        let cleaned = clean_whisper_segment(&seg);
-        if !cleaned.is_empty() {
-            if !text.is_empty() {
-                text.push(' ');
+    let out = match res.status {
+        1 => {
+            let text = if res.text_ptr.is_null() {
+                String::new()
+            } else {
+                unsafe { CStr::from_ptr(res.text_ptr) }
+                    .to_string_lossy()
+                    .trim()
+                    .to_string()
+            };
+            let language = if res.lang_ptr.is_null() {
+                "en".to_string()
+            } else {
+                unsafe { CStr::from_ptr(res.lang_ptr) }
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            if text.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(TranscriptEvent {
+                    text,
+                    language,
+                    is_final: true,
+                    timestamp_ms: now_timestamp_ms(),
+                }))
             }
-            text.push_str(cleaned);
         }
-    }
-
-    let trimmed = text.trim().to_string();
-    if trimmed.is_empty() {
-        debug!("Whisper produced no speech text for segment");
-        return Ok(None);
-    }
-
-    let language = resolve_transcript_language(pref, &state, &trimmed);
-    Ok(Some(TranscriptEvent {
-        text: trimmed,
-        language,
-        is_final: true,
-        timestamp_ms: now_timestamp_ms(),
-    }))
-}
-
-fn resolve_transcript_language(
-    pref: LanguagePref,
-    state: &whisper_rs::WhisperState,
-    text: &str,
-) -> String {
-    match pref {
-        LanguagePref::Thai => "th".to_string(),
-        LanguagePref::English => "en".to_string(),
-        LanguagePref::Auto => {
-            if text.chars().any(|c| ('\u{0E00}'..='\u{0E7F}').contains(&c)) {
-                return "th".to_string();
-            }
-            whisper_rs::get_lang_str(state.full_lang_id_from_state())
-                .unwrap_or("en")
-                .to_string()
+        0 => {
+            debug!("Whisper produced no speech text for segment");
+            Ok(None)
         }
-    }
-}
+        _ => {
+            let err_msg = if res.err_ptr.is_null() {
+                "Whisper inference failed".to_string()
+            } else {
+                unsafe { CStr::from_ptr(res.err_ptr) }
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            Err(SoulError::Voice(err_msg))
+        }
+    };
 
-fn clean_whisper_segment(raw: &str) -> &str {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return "";
-    }
-    let upper = trimmed.to_ascii_uppercase();
-    if matches!(
-        upper.as_str(),
-        "[BLANK_AUDIO]" | "(SILENCE)" | "[SILENCE]" | "[MUSIC]" | "(MUSIC)" | "[NOISE]"
-    ) {
-        return "";
-    }
-    trimmed
+    unsafe { (ctx.api.free_result)(res) };
+    out
 }
 
 /// Check whether `path` exists and begins with a recognized GGML / Whisper binary magic header.

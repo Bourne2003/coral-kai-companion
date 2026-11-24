@@ -5,6 +5,7 @@ members = [
     "crates/soul-memory",
     "crates/brain-llm",
     "crates/voice-io",
+    "crates/whisper-bridge",
     "src-tauri",
 ]
 

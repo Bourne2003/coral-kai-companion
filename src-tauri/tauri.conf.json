@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev --prefix ../ui",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm run build --prefix ../ui",
+    "beforeBuildCommand": "npm run build --prefix ../ui && ../scripts/build_whisper_bridge.sh",
     "frontendDist": "../ui/dist"
   },
   "app": {
