@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <defs>
+    <linearGradient id="tr_skin" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#F1C3B0"/>
+      <stop offset="38%" stop-color="#FFE8DC"/>
+      <stop offset="100%" stop-color="#FCE0D2"/>
+    </linearGradient>
+    <linearGradient id="tr_blouse" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#F7C7CE"/>
+      <stop offset="55%" stop-color="#EEAEB9"/>
+      <stop offset="100%" stop-color="#DF92A0"/>
+    </linearGradient>
+    <linearGradient id="tr_cardigan" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#FFFDF9"/>
+      <stop offset="65%" stop-color="#F6ECE4"/>
+      <stop offset="100%" stop-color="#E7D8CE"/>
+    </linearGradient>
+    <linearGradient id="tr_sleeve" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F9F1EB"/>
+      <stop offset="100%" stop-color="#E2D0C5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Neck & upper chest -->
+  <path d="M 366 458 L 366 532 C 350 548, 304 562, 294 590 L 506 590 C 496 562, 450 548, 434 532 L 434 458 Z"
+        fill="url(#tr_skin)" stroke="#6C4640" stroke-width="3" stroke-linejoin="round"/>
+  <!-- Neck chin cast shadow & collarbone accent -->
+  <path d="M 367 470 Q 400 508 433 470 L 433 498 Q 400 526 367 498 Z" fill="#E6B29E" opacity="0.65"/>
+  <path d="M 342 548 Q 372 560 390 556" fill="none" stroke="#D9A391" stroke-width="2.2" stroke-linecap="round" opacity="0.75"/>
+  <path d="M 458 548 Q 428 560 410 556" fill="none" stroke="#D9A391" stroke-width="2.2" stroke-linecap="round" opacity="0.75"/>
+
+  <!-- Dusty-rose inner blouse -->
+  <path d="M 326 544 C 352 558, 378 574, 400 574 C 422 574, 448 558, 474 544 L 495 948 L 305 948 Z"
+        fill="url(#tr_blouse)" stroke="#6C4640" stroke-width="3" stroke-linejoin="round"/>
+  <!-- Blouse vertical placket & gentle pleats -->
+  <path d="M 400 575 L 400 948" stroke="#CC7E8C" stroke-width="2.2" opacity="0.55"/>
+  <path d="M 362 618 C 358 700, 354 810, 352 930" fill="none" stroke="#D88B99" stroke-width="2" opacity="0.45"/>
+  <path d="M 438 618 C 442 700, 446 810, 448 930" fill="none" stroke="#D88B99" stroke-width="2" opacity="0.45"/>
+
+  <!-- Cozy cream cardigan left & right panels + sleeves -->
+  <path d="M 332 540 C 276 556, 232 586, 218 648 C 204 716, 196 838, 204 948 L 284 948 L 284 742 L 290 948 L 368 948 C 362 820, 356 678, 342 568 Z"
+        fill="url(#tr_cardigan)" stroke="#6C4640" stroke-width="3.2" stroke-linejoin="round"/>
+  <path d="M 468 540 C 524 556, 568 586, 582 648 C 596 716, 604 838, 596 948 L 516 948 L 516 742 L 510 948 L 432 948 C 438 820, 444 678, 458 568 Z"
+        fill="url(#tr_cardigan)" stroke="#6C4640" stroke-width="3.2" stroke-linejoin="round"/>
+
+  <!-- Cardigan knit trim & soft arm-fold lines -->
+  <path d="M 342 568 C 354 678, 360 820, 366 948" fill="none" stroke="#D8C2B5" stroke-width="8" stroke-linecap="round" opacity="0.55"/>
+  <path d="M 458 568 C 446 678, 440 820, 434 948" fill="none" stroke="#D8C2B5" stroke-width="8" stroke-linecap="round" opacity="0.55"/>
+  <path d="M 284 718 C 282 785, 282 855, 285 946" fill="none" stroke="#8C675E" stroke-width="2.2" stroke-linecap="round" opacity="0.4"/>
+  <path d="M 516 718 C 518 785, 518 855, 515 946" fill="none" stroke="#8C675E" stroke-width="2.2" stroke-linecap="round" opacity="0.4"/>
+  <!-- Sleeve shading -->
+  <path d="M 222 654 C 238 745, 244 840, 246 942 L 208 942 C 202 835, 210 725, 222 654 Z" fill="url(#tr_sleeve)" opacity="0.45"/>
+  <path d="M 578 654 C 562 745, 556 840, 554 942 L 592 942 C 598 835, 590 725, 578 654 Z" fill="url(#tr_sleeve)" opacity="0.45"/>
+
+  <!-- Sailor / Peter-Pan Crisp Collar with Mint Trim -->
+  <path d="M 366 520 C 344 532, 314 554, 304 584 C 334 596, 368 592, 396 566 Z"
+        fill="#FFFFFF" stroke="#6C4640" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M 434 520 C 456 532, 486 554, 496 584 C 466 596, 432 592, 404 566 Z"
+        fill="#FFFFFF" stroke="#6C4640" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M 314 579 C 340 589, 368 584, 391 564" fill="none" stroke="#6FA89E" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M 486 579 C 460 589, 432 584, 409 564" fill="none" stroke="#6FA89E" stroke-width="3.2" stroke-linecap="round"/>
+
+  <!-- Cozy pocket + gold buttons -->
+  <path d="M 454 768 L 498 768 L 498 814 C 498 825, 454 825, 454 814 Z"
+        fill="#FFFBF7" stroke="#A6877B" stroke-width="2.2" stroke-linejoin="round"/>
+  <circle cx="348" cy="656" r="6.5" fill="#F5CC7A" stroke="#8F6A3B" stroke-width="2"/>
+  <circle cx="352" cy="738" r="6.5" fill="#F5CC7A" stroke="#8F6A3B" stroke-width="2"/>
+  <circle cx="356" cy="820" r="6.5" fill="#F5CC7A" stroke="#8F6A3B" stroke-width="2"/>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Small pursed "Oo" / "U" vowel shape -->
+  <ellipse cx="400" cy="438" rx="9" ry="10.5" fill="#9A3E4E" stroke="#753D3E" stroke-width="2.3"/>
+  <ellipse cx="400" cy="444" rx="5.5" ry="3.5" fill="#EE8794"/>
+</svg>

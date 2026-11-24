@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <!-- Relaxed warm neutral closed smile -->
+  <path d="M 382 434 Q 400 441 418 434" fill="none" stroke="#7A4544" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M 392 444 Q 400 446 408 444" fill="none" stroke="#E4A79A" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+</svg>
