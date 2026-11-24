@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           cat <<'EOF' > /tmp/release_notes.md
-          ## Coral&Kai Companion v0.2.0 (macOS Apple Silicon `aarch64`)
+          ## Coral&Kai Companion ${{ github.ref_name }} (macOS Apple Silicon `aarch64`)
 
           ### Highlights / จุดเด่นในเวอร์ชันนี้
           - **Properly Sealed & Ad-Hoc Signed macOS Bundle:** Both `.app` and nested `libwhisper_bridge.dylib` are ad-hoc signed with `entitlements.plist` and sealed `CodeResources` (fixes the `"App is damaged and can't be opened"` linker-signed mismatch error).
@@ -103,6 +103,16 @@ jobs:
              xattr -cr "/Applications/Coral&Kai Companion.app"
              ```
           EOF
-          gh release create "$GITHUB_REF_NAME" "$DMG_PATH" "$SHA256_PATH" \
-            --title "Coral&Kai Companion $GITHUB_REF_NAME" \
-            --notes-file /tmp/release_notes.md
+          TAG="$GITHUB_REF_NAME"
+          TITLE="Coral&Kai Companion $TAG"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "$TITLE" \
+              --notes-file /tmp/release_notes.md
+            gh release upload "$TAG" "$DMG_PATH" "$SHA256_PATH" --clobber
+          else
+            gh release create "$TAG" "$DMG_PATH" "$SHA256_PATH" \
+              --title "$TITLE" \
+              --notes-file /tmp/release_notes.md
+          fi
